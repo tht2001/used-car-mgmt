@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}财务核算 - 车管MVP{% endblock %}
+{% block content %}
+<h1>财务核算</h1>
+
+<div class="card">
+  <h2>单车成本
+    <a href="/reports/finance.csv" class="btn btn-ghost btn-sm" style="float:right">导出 CSV</a>
+  </h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>品牌型号</th><th>车牌</th><th class="num">收购价</th><th class="num">整备费用</th><th class="num">其他费用</th><th class="num">总成本</th><th class="num">成交价</th><th class="num">利润</th><th>状态</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td><a href="/vehicles/{{ r.id }}">{{ r.brand }} {{ r.model }}</a></td>
+        <td>{{ r.plate }}</td>
+        <td class="num">{{ "%.0f"|format(r.buy_price) }}</td>
+        <td class="num">{{ "%.0f"|format(r.rework_cost or 0) }}</td>
+        <td class="num">{{ "%.0f"|format(r.other_cost or 0) }}</td>
+        <td class="num">{{ "%.0f"|format(r.total_cost or 0) }}</td>
+        <td class="num">{{ "%.0f"|format(r.sale_price) if r.sale_price else '-' }}</td>
+        <td class="num">{{ "%.0f"|format(r.profit) if r.profit is not none else '-' }}</td>
+        <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td colspan="3">合计</td>
+        <td class="num">{{ "%.0f"|format(totals.buy) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.rework) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.other) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.total) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.sale) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.profit) }}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>销售提成</h2>
+  <p class="form-hint">提成比例：{{ "%.2f"|format(commission_rate * 100) }}%</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>销售员</th><th class="num">收入(元)</th><th class="num">成本(元)</th><th class="num">利润(元)</th><th class="num">提成(元)</th></tr></thead>
+    <tbody>
+      {% for c in commission_rows %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td class="num">{{ "%.0f"|format(c.income) }}</td>
+        <td class="num">{{ "%.0f"|format(c.cost) }}</td>
+        <td class="num">{{ "%.0f"|format(c.profit) }}</td>
+        <td class="num">{{ "%.0f"|format(c.commission) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="form-hint" style="margin-top:10px">提成 =（成交价 - 车辆总成本）× 提成比例；车辆总成本 = 收购价 + 整备费用 + 其他费用；仅已售出车辆参与提成计算。</p>
+</div>
+{% endblock %}

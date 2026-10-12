@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}系统设置 - 车管MVP{% endblock %}
+{% block content %}
+<h1>系统设置</h1>
+
+<div class="card">
+  <h2>用户管理</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>用户名</th><th>姓名</th><th>角色</th><th>部门</th><th>电话</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.id }}</td>
+        <td>{{ u.username }}</td>
+        <td>{{ u.name }}</td>
+        <td>{{ u.role_name }}</td>
+        <td>{{ u.dept_name or '-' }}</td>
+        <td>{{ u.phone or '-' }}</td>
+        <td>
+          {% if u.active %}
+          <span class="badge badge-启用">启用</span>
+          {% else %}
+          <span class="badge badge-禁用">禁用</span>
+          {% endif %}
+        </td>
+        <td>
+          <form class="inline-form" method="post" action="/settings/users/{{ u.id }}/toggle" data-confirm="确认切换该用户状态？">
+            <button type="submit" class="btn btn-ghost btn-sm">{{ '禁用' if u.active else '启用' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>新增用户</h2>
+  <form method="post" action="/settings/users/add">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>用户名 <span class="req">*</span></label>
+        <input type="text" name="username" required>
+      </div>
+      <div class="form-group">
+        <label>密码 <span class="req">*</span></label>
+        <input type="password" name="password" required>
+      </div>
+      <div class="form-group">
+        <label>姓名 <span class="req">*</span></label>
+        <input type="text" name="name" required>
+      </div>
+      <div class="form-group">
+        <label>角色</label>
+        <select name="role">
+          {% for r in roles %}
+          <option value="{{ r[0] }}">{{ r[1] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>部门</label>
+        <select name="dept_id">
+          {% for d in depts %}
+          <option value="{{ d.id }}">{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>电话</label>
+        <input type="tel" name="phone">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">新增用户</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>系统参数</h2>
+  <form method="post" action="/settings/update">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>公司名称</label>
+        <input type="text" name="company_name" value="{{ settings.company_name or '' }}">
+      </div>
+      <div class="form-group">
+        <label>销售提成比例（小数，如 0.05）</label>
+        <input type="number" name="sales_commission_rate" step="0.001" min="0" max="1" value="{{ settings.sales_commission_rate }}">
+      </div>
+      <div class="form-group">
+        <label>高价收购阈值(元)</label>
+        <input type="number" name="buy_high_price_threshold" step="0.01" min="0" value="{{ settings.buy_high_price_threshold }}">
+      </div>
+      <div class="form-group full">
+        <label>入库标准</label>
+        <textarea name="stock_standard">{{ settings.stock_standard or '' }}</textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">保存参数</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

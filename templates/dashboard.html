@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}工作台 - 车管MVP{% endblock %}
+{% block content %}
+<h1>工作台</h1>
+
+<div class="cards">
+  <div class="card">
+    <h2>库存总数</h2>
+    <div class="big">{{ stats.total }}</div>
+    <div class="sub">其中在售 {{ stats.sellable }}</div>
+  </div>
+  <div class="card">
+    <h2>在库资金占用</h2>
+    <div class="big">{{ "%.0f"|format(capital) }} 元</div>
+    <div class="sub">库存车辆总成本</div>
+  </div>
+  <div class="card">
+    <h2>待办审批</h2>
+    <div class="big">{{ pending_count }}</div>
+    <div class="sub"><a href="/approvals">去处理 →</a></div>
+  </div>
+  <div class="card">
+    <h2>近 30 天</h2>
+    <div class="big">{{ bought30 }} / {{ sold30 }}</div>
+    <div class="sub">收车 / 成交</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>库存状态分布</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>状态</th><th class="num">数量</th></tr></thead>
+    <tbody>
+      {% for s in stats.by_status %}
+      <tr>
+        <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
+        <td class="num">{{ s.count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% if profit_rows %}
+<div class="card">
+  <h2>部门利润简表</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>部门</th><th class="num">收入(元)</th><th class="num">成本(元)</th><th class="num">利润(元)</th></tr></thead>
+    <tbody>
+      {% for r in profit_rows %}
+      <tr>
+        <td>{{ r.dept }}</td>
+        <td class="num">{{ "%.0f"|format(r.income) }}</td>
+        <td class="num">{{ "%.0f"|format(r.cost) }}</td>
+        <td class="num">{{ "%.0f"|format(r.profit) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% if my_orders %}
+<div class="card">
+  <h2>我的订单</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>订单ID</th><th>车辆</th><th>车牌</th><th>客户</th><th class="num">价格(元)</th><th>创建时间</th></tr></thead>
+    <tbody>
+      {% for o in my_orders %}
+      <tr>
+        <td>{{ o.id }}</td>
+        <td>{{ o.brand }} {{ o.model }}</td>
+        <td>{{ o.plate }}</td>
+        <td>{{ o.customer }}</td>
+        <td class="num">{{ "%.0f"|format(o.price) }}</td>
+        <td>{{ o.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% if my_reworks %}
+<div class="card">
+  <h2>我的整备工单</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>工单ID</th><th>车辆</th><th>车牌</th><th>状态</th></tr></thead>
+    <tbody>
+      {% for w in my_reworks %}
+      <tr>
+        <td>{{ w.id }}</td>
+        <td><a href="/vehicles/{{ w.id }}">{{ w.brand }} {{ w.model }}</a></td>
+        <td>{{ w.plate }}</td>
+        <td><span class="badge badge-{{ w.status }}">{{ w.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>最新入库车辆</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>品牌型号</th><th>车牌</th><th>状态</th><th class="num">收购价(元)</th><th>入库时间</th></tr></thead>
+    <tbody>
+      {% for v in recent_vehicles %}
+      <tr>
+        <td>{{ v.id }}</td>
+        <td><a href="/vehicles/{{ v.id }}">{{ v.brand }} {{ v.model }}</a></td>
+        <td>{{ v.plate }}</td>
+        <td><span class="badge badge-{{ v.status }}">{{ v.status }}</span></td>
+        <td class="num">{{ "%.0f"|format(v.buy_price) }}</td>
+        <td>{{ v.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

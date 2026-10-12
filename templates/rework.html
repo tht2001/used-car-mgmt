@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}整备管理 - 车管MVP{% endblock %}
+{% block content %}
+<h1>整备管理</h1>
+<p class="form-hint">费用登记后自动计入车辆成本台账（ledger）。</p>
+
+<div class="card">
+  <form method="get" action="/rework" class="form-grid">
+    <div class="form-group">
+      <label>状态</label>
+      <select name="status">
+        <option value="">全部</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>&nbsp;</label>
+      <div><button type="submit" class="btn btn-primary">筛选</button></div>
+    </div>
+  </form>
+</div>
+
+{% for w in orders %}
+<div class="card">
+  <h2>{{ w.brand }} {{ w.model }} <small style="color:var(--text-dim)">{{ w.plate }}</small>
+    <span class="badge badge-{{ w.status }}">{{ w.status }}</span>
+  </h2>
+  <p style="color:var(--text-faint);font-size:12px">工单 #{{ w.id }} · 车辆 <a href="/vehicles/{{ w.vehicle_id }}">#{{ w.vehicle_id }}</a> · 负责人 {{ w.assignee_name or '-' }} · {{ w.created_at }}</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>项目</th><th class="num">费用(元)</th><th>供应商</th><th>支付方式</th></tr></thead>
+    <tbody>
+      {% for item in w['items'] %}
+      <tr>
+        <td>{{ item.item }}</td>
+        <td class="num">{{ "%.0f"|format(item.cost) }}</td>
+        <td>{{ item.supplier or '-' }}</td>
+        <td>{{ item.pay_method or '-' }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td>费用合计</td>
+        <td class="num">{{ "%.0f"|format(w.items_total) }}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  {% if w.status == '待处理' %}
+  <form class="inline-form" method="post" action="/rework/{{ w.id }}/start">
+    <button type="submit" class="btn btn-primary">开始整备</button>
+  </form>
+  {% endif %}
+
+  {% if w.status in ('待处理', '进行中') %}
+  <form method="post" action="/rework/{{ w.id }}/add_item" style="margin-top:12px">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>项目 <span class="req">*</span></label>
+        <input type="text" name="item" required>
+      </div>
+      <div class="form-group">
+        <label>费用(元) <span class="req">*</span></label>
+        <input type="number" name="cost" step="0.01" min="0" required>
+      </div>
+      <div class="form-group">
+        <label>供应商</label>
+        <input type="text" name="supplier">
+      </div>
+      <div class="form-group">
+        <label>支付方式</label>
+        <select name="pay_method">
+          <option value="现金">现金</option>
+          <option value="对公转账">对公转账</option>
+          <option value="微信">微信</option>
+          <option value="支付宝">支付宝</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">添加项目</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if w.status == '进行中' %}
+  <form class="inline-form" method="post" action="/rework/{{ w.id }}/finish" data-confirm="确认整备完成并提交入库审核？" style="margin-top:12px">
+    <button type="submit" class="btn btn-primary">完成并提交入库审核</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

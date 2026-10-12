@@ -1,0 +1,2 @@
+# 二手车业务管理系统 MVP 依赖（仅 Flask；数据库用 Python 标准库 sqlite3）
+flask

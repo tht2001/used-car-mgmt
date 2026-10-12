@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}车管MVP{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<aside class="sidebar">
+  <div class="logo">车管MVP</div>
+  <nav>
+    {% for m in menus %}
+    <a href="{{ m.url }}" class="{% if m.key == active %}active{% endif %}">{{ m.name }}</a>
+    {% endfor %}
+  </nav>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <form class="search-form" method="get" action="/vehicles">
+      <input type="text" name="q" placeholder="搜索品牌/车型/车牌" value="">
+      <button type="submit" class="btn btn-ghost btn-sm">搜索</button>
+    </form>
+    <div class="spacer"></div>
+    <a href="/approvals">待办
+      {% if pending_count and pending_count > 0 %}
+      <span class="badge badge-red" style="margin-left:4px">{{ pending_count }}</span>
+      {% endif %}
+    </a>
+    <span class="user-info"><strong>{{ user.name }}</strong> {{ user.role_name }}</span>
+    <a href="/logout" class="btn btn-ghost btn-sm">退出</a>
+  </header>
+  <main class="content">
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% if msgs %}
+        {% for category, message in msgs %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

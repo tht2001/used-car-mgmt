@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}{{ vehicle.brand }} {{ vehicle.model }} - 车辆详情{% endblock %}
+{% block content %}
+<h1>{{ vehicle.brand }} {{ vehicle.model }} <small style="color:var(--text-dim)">{{ vehicle.plate }}</small>
+  <span class="badge badge-{{ vehicle.status }}">{{ vehicle.status }}</span>
+</h1>
+
+<div class="card">
+  <h2>基本资料</h2>
+  {% if vehicle.buy_price > threshold %}
+  <div class="notice">收购价超过阈值（{{ "%.0f"|format(threshold) }} 元），已自动生成高价审批单。</div>
+  {% endif %}
+  <dl class="dl-grid">
+    <div><dt>车辆ID</dt><dd>{{ vehicle.id }}</dd></div>
+    <div><dt>车牌号</dt><dd>{{ vehicle.plate }}</dd></div>
+    <div><dt>品牌</dt><dd>{{ vehicle.brand }}</dd></div>
+    <div><dt>车型</dt><dd>{{ vehicle.model }}</dd></div>
+    <div><dt>年份</dt><dd>{{ vehicle.year or '-' }}</dd></div>
+    <div><dt>颜色</dt><dd>{{ vehicle.color or '-' }}</dd></div>
+    <div><dt>里程(万km)</dt><dd>{{ vehicle.mileage if vehicle.mileage is not none else '-' }}</dd></div>
+    <div><dt>VIN</dt><dd>{{ vehicle.vin or '-' }}</dd></div>
+    <div><dt>收购价(元)</dt><dd>{{ "%.0f"|format(vehicle.buy_price) }}</dd></div>
+    <div><dt>收购员</dt><dd>{{ vehicle.buyer_name or '-' }}</dd></div>
+    <div><dt>销售员</dt><dd>{{ vehicle.sales_name or '-' }}</dd></div>
+    <div><dt>客户姓名</dt><dd>{{ vehicle.customer_name or '-' }}</dd></div>
+    <div><dt>客户电话</dt><dd>{{ vehicle.customer_phone or '-' }}</dd></div>
+    <div><dt>成交价(元)</dt><dd>{{ "%.0f"|format(vehicle.sold_price) if vehicle.sold_price else '-' }}</dd></div>
+    <div><dt>入库时间</dt><dd>{{ vehicle.created_at }}</dd></div>
+    <div><dt>当前状态</dt><dd>{{ vehicle.status }}</dd></div>
+    <div class="full" style="grid-column:1/-1"><dt>备注</dt><dd>{{ vehicle.note or '-' }}</dd></div>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>操作区</h2>
+  {% if vehicle.status == '待检测' %}
+  <form method="post" action="/vehicles/{{ vehicle.id }}/inspect" data-confirm="确认提交检测结果？">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>检测员</label>
+        <input type="text" name="inspector" value="{{ user.name }}">
+      </div>
+      <div class="form-group">
+        <label>评分</label>
+        <input type="number" name="score" step="0.1" min="0" max="100">
+      </div>
+      <div class="form-group">
+        <label>检测结论</label>
+        <select name="result">
+          <option value="通过">通过</option>
+          <option value="退回">退回</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>照片备注</label>
+        <input type="text" name="photos_note">
+      </div>
+      <div class="form-group full">
+        <label>问题描述</label>
+        <textarea name="issues"></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">提交检测结果</button>
+    </div>
+  </form>
+  {% elif vehicle.status == '待入库审核' %}
+  <form class="inline-form" method="post" action="/vehicles/{{ vehicle.id }}/stock_approve" data-confirm="质检通过并入库，车辆将变为在售？">
+    <button type="submit" class="btn btn-primary">质检通过并入库（变为在售）</button>
+  </form>
+  <form class="inline-form" method="post" action="/vehicles/{{ vehicle.id }}/stock_reject" data-confirm="退回整改？">
+    <button type="submit" class="btn btn-danger">退回整改</button>
+  </form>
+  {% else %}
+  <p style="color:var(--text-faint)">当前状态无可用操作。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>全生命周期时间线</h2>
+  <div class="timeline">
+    {% for t in timeline %}
+    <div class="timeline-item">
+      <div class="t-time">{{ t.time }}</div>
+      <div class="t-text">{{ t.text }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>检测记录</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>检测员</th><th class="num">评分</th><th>结论</th><th>问题</th><th>照片备注</th><th>时间</th></tr></thead>
+    <tbody>
+      {% for i in inspections %}
+      <tr>
+        <td>{{ i.inspector }}</td>
+        <td class="num">{{ i.score }}</td>
+        <td>{{ i.result }}</td>
+        <td>{{ i.issues or '-' }}</td>
+        <td>{{ i.photos_note or '-' }}</td>
+        <td>{{ i.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>整备工单</h2>
+  {% for w in rework_orders %}
+  <div style="border:1px solid var(--card-border);border-radius:8px;padding:14px;margin-bottom:14px">
+    <h3>工单 #{{ w.id }} · {{ w.assignee_name or '未指派' }} <span class="badge badge-{{ w.status }}">{{ w.status }}</span></h3>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>项目</th><th class="num">费用(元)</th><th>供应商</th><th>支付方式</th><th>时间</th></tr></thead>
+      <tbody>
+        {% for item in w['items'] %}
+        <tr>
+          <td>{{ item.item }}</td>
+          <td class="num">{{ "%.0f"|format(item.cost) }}</td>
+          <td>{{ item.supplier or '-' }}</td>
+          <td>{{ item.pay_method or '-' }}</td>
+          <td>{{ item.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p>费用合计：<strong>{{ "%.0f"|format(w.items_total) }} 元</strong></p>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>成本明细</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>类别</th><th class="num">金额(元)</th><th>备注</th><th>登记人</th><th>时间</th></tr></thead>
+    <tbody>
+      <tr><td>收购价</td><td class="num">{{ "%.0f"|format(vehicle.buy_price) }}</td><td>-</td><td>-</td><td>-</td></tr>
+      {% for l in ledger %}
+      <tr>
+        <td>{{ l.category }}</td>
+        <td class="num">{{ "%.0f"|format(l.amount) }}</td>
+        <td>{{ l.note or '-' }}</td>
+        <td>{{ l.created_by_name or '-' }}</td>
+        <td>{{ l.created_at }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td>总成本</td>
+        <td class="num">{{ "%.0f"|format(vehicle.total_cost or 0) }}</td>
+        <td colspan="3"></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>销售订单</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>订单ID</th><th>客户</th><th>电话</th><th class="num">价格(元)</th><th class="num">优惠(元)</th><th>金融方案</th><th>过户</th><th>交付</th><th>合同号</th><th>销售员</th><th>创建时间</th></tr></thead>
+    <tbody>
+      {% for o in sales_orders %}
+      <tr>
+        <td>{{ o.id }}</td>
+        <td>{{ o.customer }}</td>
+        <td>{{ o.phone }}</td>
+        <td class="num">{{ "%.0f"|format(o.price) }}</td>
+        <td class="num">{{ "%.0f"|format(o.discount or 0) }}</td>
+        <td>{{ o.finance_plan or '-' }}</td>
+        <td>{{ o.transfer_status }}</td>
+        <td>{{ o.delivery_status }}</td>
+        <td>{{ o.contract_no or '-' }}</td>
+        <td>{{ o.sales_name or '-' }}</td>
+        <td>{{ o.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>操作记录</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>详情</th></tr></thead>
+    <tbody>
+      {% for l in logs %}
+      <tr>
+        <td>{{ l.created_at }}</td>
+        <td>{{ l.name }}</td>
+        <td>{{ l.action }}</td>
+        <td>{{ l.detail or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

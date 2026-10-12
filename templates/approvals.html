@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}审批中心 - 车管MVP{% endblock %}
+{% block content %}
+<h1>审批中心</h1>
+
+<div class="card">
+  <h2>发起审批</h2>
+  <form method="post" action="/approvals">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>审批类型 <span class="req">*</span></label>
+        <select name="type" required>
+          {% for t in types %}
+          <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>标题 <span class="req">*</span></label>
+        <input type="text" name="title" required>
+      </div>
+      <div class="form-group">
+        <label>金额(元) <span class="req">*</span></label>
+        <input type="number" name="amount" step="0.01" min="0" required>
+      </div>
+      <div class="form-group full">
+        <label>事由</label>
+        <textarea name="reason"></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">提交审批</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>审批列表</h2>
+  <form method="get" action="/approvals" class="form-grid">
+    <div class="form-group">
+      <label>状态</label>
+      <select name="status">
+        <option value="">全部</option>
+        <option value="待审批" {% if f_status == '待审批' %}selected{% endif %}>待审批</option>
+        <option value="已通过" {% if f_status == '已通过' %}selected{% endif %}>已通过</option>
+        <option value="已驳回" {% if f_status == '已驳回' %}selected{% endif %}>已驳回</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>&nbsp;</label>
+      <div><button type="submit" class="btn btn-primary">筛选</button></div>
+    </div>
+  </form>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>类型</th><th>标题</th><th>申请人</th><th class="num">金额(元)</th><th>状态</th><th>审批人</th><th>意见</th><th>创建时间</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for a in approvals %}
+      <tr>
+        <td>{{ a.id }}</td>
+        <td>{{ a.type }}</td>
+        <td>{{ a.title }}</td>
+        <td>{{ a.applicant_name }}</td>
+        <td class="num">{{ "%.0f"|format(a.amount) }}</td>
+        <td><span class="badge badge-{{ a.status }}">{{ a.status }}</span></td>
+        <td>{{ a.approver_name or '-' }}</td>
+        <td>{{ a.comment or '-' }}</td>
+        <td>{{ a.created_at }}</td>
+        <td>
+          {% if a.status == '待审批' and can_approve %}
+          <form class="inline-form" method="post" action="/approvals/{{ a.id }}/approve">
+            <input type="text" name="comment" placeholder="审批意见" style="width:130px">
+            <button type="submit" class="btn btn-primary btn-sm">通过</button>
+            <button type="submit" class="btn btn-danger btn-sm" formaction="/approvals/{{ a.id }}/reject">驳回</button>
+          </form>
+          {% else %}
+          <span style="color:var(--text-faint)">-</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

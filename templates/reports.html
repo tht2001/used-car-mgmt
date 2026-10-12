@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}报表导出 - 车管MVP{% endblock %}
+{% block content %}
+<h1>报表导出</h1>
+
+<div class="cards">
+  <div class="card">
+    <h2>车辆总数</h2>
+    <div class="big">{{ summary.total }}</div>
+  </div>
+  <div class="card">
+    <h2>已售出</h2>
+    <div class="big">{{ summary.sold }}</div>
+  </div>
+  <div class="card">
+    <h2>在售</h2>
+    <div class="big">{{ summary.sellable }}</div>
+  </div>
+  <div class="card">
+    <h2>在库资金占用</h2>
+    <div class="big">{{ "%.0f"|format(summary.capital) }} 元</div>
+  </div>
+</div>
+
+<div class="export-cards">
+  <div class="card export-card">
+    <h2>车辆台账</h2>
+    <p class="form-hint">导出全部车辆基础信息、收购价、状态与入库时间。</p>
+    <a href="/reports/vehicles.csv" class="btn btn-primary">下载车辆台账</a>
+  </div>
+  <div class="card export-card">
+    <h2>销售报表</h2>
+    <p class="form-hint">导出全部销售订单：客户、成交价、优惠、金融方案与过户/交付状态。</p>
+    <a href="/reports/sales.csv" class="btn btn-primary">下载销售报表</a>
+  </div>
+  <div class="card export-card">
+    <h2>财务汇总</h2>
+    <p class="form-hint">导出单车成本明细与利润：收购价、整备费用、其他费用、总成本、成交价与利润。</p>
+    <a href="/reports/finance.csv" class="btn btn-primary">下载财务汇总</a>
+  </div>
+</div>
+{% endblock %}

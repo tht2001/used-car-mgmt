@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}收车管理 - 车管MVP{% endblock %}
+{% block content %}
+<h1>收车管理</h1>
+
+<div class="card">
+  <h2>创建收车单</h2>
+  <p class="form-hint">收购价超过 {{ "%.0f"|format(threshold) }} 元将自动生成高价审批。</p>
+  <form method="post" action="/acquisition" data-confirm="确认创建收车单？">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>品牌 <span class="req">*</span></label>
+        <input type="text" name="brand" required>
+      </div>
+      <div class="form-group">
+        <label>车型 <span class="req">*</span></label>
+        <input type="text" name="model" required>
+      </div>
+      <div class="form-group">
+        <label>年份</label>
+        <input type="number" name="year">
+      </div>
+      <div class="form-group">
+        <label>里程(万km)</label>
+        <input type="number" name="mileage" step="0.1">
+      </div>
+      <div class="form-group">
+        <label>颜色</label>
+        <input type="text" name="color">
+      </div>
+      <div class="form-group">
+        <label>车牌号</label>
+        <input type="text" name="plate">
+      </div>
+      <div class="form-group">
+        <label>VIN</label>
+        <input type="text" name="vin">
+      </div>
+      <div class="form-group">
+        <label>收购价(元) <span class="req">*</span></label>
+        <input type="number" name="buy_price" step="0.01" min="0" required>
+      </div>
+      <div class="form-group">
+        <label>客户姓名</label>
+        <input type="text" name="customer_name">
+      </div>
+      <div class="form-group">
+        <label>客户电话</label>
+        <input type="tel" name="customer_phone">
+      </div>
+      <div class="form-group full">
+        <label>备注</label>
+        <textarea name="note"></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">创建收车单</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>最近收车记录</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>品牌型号</th><th>车牌</th><th class="num">收购价(元)</th><th>状态</th><th>收购员</th><th>创建时间</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for v in vehicles %}
+      <tr>
+        <td>{{ v.id }}</td>
+        <td>{{ v.brand }} {{ v.model }}</td>
+        <td>{{ v.plate }}</td>
+        <td class="num">{{ "%.0f"|format(v.buy_price) }}</td>
+        <td><span class="badge badge-{{ v.status }}">{{ v.status }}</span></td>
+        <td>{{ v.buyer_name or '-' }}</td>
+        <td>{{ v.created_at }}</td>
+        <td><a href="/vehicles/{{ v.id }}">详情</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}
