@@ -7,6 +7,7 @@ Flask + SQLite(sqlite3 标准库) + Jinja2 + 原生 CSS/JS，无构建步骤。
 """
 import csv
 import io
+import os
 from functools import wraps
 
 from flask import (Flask, Response, abort, flash, g, redirect, render_template,
@@ -16,8 +17,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import db
 
 app = Flask(__name__)
-# MVP 演示用固定密钥；生产部署请换成随机值并妥善保管
-app.secret_key = "car-mgmt-mvp-secret-change-me"
+# 生产部署可通过环境变量 SECRET_KEY 覆盖；未设置时用内置演示密钥
+app.secret_key = os.environ.get("SECRET_KEY", "car-mgmt-mvp-secret-change-me")
+# gunicorn 等 WSGI 服务器 import 本模块时也建表（幂等）
+db.init_db()
 
 # ---------------------------------------------------------------- 常量
 ROLE_NAMES = {

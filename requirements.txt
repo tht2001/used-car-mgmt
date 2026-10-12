@@ -1,2 +1,3 @@
-# 二手车业务管理系统 MVP 依赖（仅 Flask；数据库用 Python 标准库 sqlite3）
+# 二手车业务管理系统 MVP 依赖（数据库用 Python 标准库 sqlite3）
 flask
+gunicorn  # 生产部署用 WSGI 服务器（Render / VPS）
