@@ -10,7 +10,9 @@ import os
 import sqlite3
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "data", "car_mgmt.db")
+# 默认库路径；可用环境变量 CAR_MGMT_DB_PATH 覆盖（测试/多环境隔离用）
+DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "car_mgmt.db")
+DB_PATH = os.environ.get("CAR_MGMT_DB_PATH", DEFAULT_DB_PATH)
 
 DEFAULT_CREATED_AT = "datetime('now','localtime')"
 

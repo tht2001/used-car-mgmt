@@ -1,11 +1,14 @@
-# Render 一键部署配置：在 Render 选 New -> Web Service -> 选中本仓库即可自动识别
+# Render 一键部署配置（仅用于客户演示，正式运行不在此部署）。
+# 在 Render 选 New -> Web Service -> 选中本仓库即可自动识别。
 services:
   - type: web
     name: used-car-mgmt
     runtime: python
     buildCommand: pip install -r requirements.txt
-    # 每次启动先重建演示数据库（免费版磁盘是临时的，重启会丢数据，演示可接受），再启动 gunicorn
-    startCommand: python seed.py && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    # 演示初始化是显式命令：建表（幂等）-> 库为空时灌演示数据 -> 启动应用
+    startCommand: python scripts/init_db.py && python scripts/init_demo.py && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
     envVars:
+      - key: APP_ENV
+        value: demo
       - key: SECRET_KEY
         generateValue: true

@@ -1,9 +1,13 @@
-"""种子数据脚本：可重复运行。
+"""演示数据初始化脚本（显式命令，非破坏性默认行为）。
 
-流程：若旧库（db.DB_PATH）存在则删除，然后调用 db.init_db() 重建全部表，
-插入下面的种子数据，最后打印各表行数汇总与默认账号清单。
+- load_demo_data()：建表（幂等）并在 users 表为空时插入演示数据；绝不删库。
+- CLI 破坏性重置（删除重建演示库）必须同时满足：
+  APP_ENV ∈ {development, demo, testing} 且带 --confirm-reset 参数。
+- APP_ENV=production 时任何参数都拒绝执行（非零退出），生产库永不 seed。
 
-运行方式：python seed.py（在 car-mgmt 目录下）
+运行方式（在 car-mgmt 目录下）：
+  python seed.py                  # 建表 + 库为空时灌演示数据（安全，可重复跑）
+  python seed.py --confirm-reset   # 删除重建演示库（仅开发/演示/测试环境）
 """
 
 import os
@@ -13,6 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import db
 from werkzeug.security import generate_password_hash
+
+ALLOWED_RESET_ENVS = {"development", "demo", "testing"}
 
 TABLES = [
     "departments", "users", "vehicles", "inspections", "rework_orders",
@@ -114,12 +120,25 @@ OPERATION_LOGS = [
 ]
 
 
-def seed() -> None:
-    if os.path.exists(db.DB_PATH):
-        os.remove(db.DB_PATH)
-        print(f"已删除旧库：{db.DB_PATH}")
+def _target_db_allowed() -> bool:
+    """删除前校验：目标库路径必须来自 CAR_MGMT_DB_PATH 或默认 data/car_mgmt.db。"""
+    env_path = os.environ.get("CAR_MGMT_DB_PATH")
+    allowed = {os.path.abspath(db.DEFAULT_DB_PATH)}
+    if env_path:
+        allowed.add(os.path.abspath(env_path))
+    return os.path.abspath(db.DB_PATH) in allowed
+
+
+def load_demo_data() -> bool:
+    """建表（幂等）并在 users 表为空时插入演示数据；不删库。
+
+    返回 True 表示本次插入了演示数据；库中已有用户时跳过并返回 False。
+    """
     db.init_db()
-    print(f"已重建空库：{db.DB_PATH}")
+    existing = db.query_one("SELECT COUNT(*) AS c FROM users")["c"]
+    if existing:
+        print(f"库中已有 {existing} 个用户，跳过演示数据插入：{db.DB_PATH}")
+        return False
 
     for dept_id, name in DEPARTMENTS:
         db.execute("INSERT INTO departments (id, name) VALUES (?, ?)", (dept_id, name))
@@ -191,10 +210,50 @@ def seed() -> None:
     for table in TABLES:
         count = db.query_one(f"SELECT COUNT(*) AS c FROM {table}")["c"]
         print(f"  {table:15s} {count}")
+    print("\n== 各表行数 ==")
+    for table in TABLES:
+        count = db.query_one(f"SELECT COUNT(*) AS c FROM {table}")["c"]
+        print(f"  {table:15s} {count}")
     print("\n== 默认账号（密码均为 123456） ==")
     for username, name, role, _, _ in USERS:
         print(f"  {username:10s} {name} ({role})")
+    return True
+
+
+def _refuse(reason: str) -> int:
+    print(f"拒绝执行：{reason}", file=sys.stderr)
+    return 1
+
+
+def main(argv: list[str]) -> int:
+    app_env = os.environ.get("APP_ENV", "development")
+    if app_env == "production":
+        return _refuse(
+            "APP_ENV=production 时禁止运行 seed（生产库永不灌演示数据/删库）。"
+        )
+    if "--confirm-reset" in argv:
+        # 破坏性重置：删库重建，仅允许开发/演示/测试环境
+        if app_env not in ALLOWED_RESET_ENVS:
+            return _refuse(
+                f"删除重建仅允许 APP_ENV={sorted(ALLOWED_RESET_ENVS)}，"
+                f"当前为 {app_env}。"
+            )
+        if not _target_db_allowed():
+            return _refuse(
+                f"目标库路径 {db.DB_PATH} 不在允许范围 "
+                f"(CAR_MGMT_DB_PATH 或默认 data/car_mgmt.db)，拒绝删除。"
+            )
+        if os.path.exists(db.DB_PATH):
+            os.remove(db.DB_PATH)
+            print(f"已删除旧库：{db.DB_PATH}")
+        db.init_db()
+        print(f"已重建空库：{db.DB_PATH}")
+        load_demo_data()
+        return 0
+    # 默认：安全模式——建表（幂等）+ 库为空时灌演示数据，不删库
+    load_demo_data()
+    return 0
 
 
 if __name__ == "__main__":
-    seed()
+    raise SystemExit(main(sys.argv[1:]))

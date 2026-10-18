@@ -4,18 +4,43 @@
 技术栈：Python 3.12 + Flask + SQLite（标准库 sqlite3，无 ORM）+ Jinja2 + 原生 CSS/JS，
 无 npm、无构建步骤。pip 依赖只有 `flask`。
 
-## 快速运行
+## 快速运行（本地开发）
 
 ```bash
 cd car-mgmt
 pip install -r requirements.txt   # Windows: py -m pip install -r requirements.txt
-python seed.py                    # 初始化数据库与演示数据（可重复跑，会先清空重建）
+python scripts/init_db.py         # 建表（幂等，不删库）
+python scripts/init_demo.py       # 库为空时灌演示数据（已有数据则跳过）
 python app.py                     # 启动，浏览器打开 http://127.0.0.1:5001
 ```
 
-- 数据库文件：`data/car_mgmt.db`（首次启动 `app.py` 也会自动建表）。
-- Windows / Linux 均可直接 `python app.py` 运行；生产环境请使用 gunicorn/waitress 等 WSGI 服务器，
-  并修改 `app.py` 中的 `secret_key`。
+- 数据库文件：`data/car_mgmt.db`（`python app.py` 的 `__main__` 入口会显式建表）。
+- 演示账号见下表（密码均为 123456）；**生产环境永不灌演示账号**，
+  首个管理员用 `scripts/create_admin.py` 建立（见下）。
+
+## 环境变量
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `APP_ENV` | 运行环境：`development` / `demo` / `testing` / `production` | `development` |
+| `SECRET_KEY` | 会话密钥。`APP_ENV=production` 时**必填**，未设置应用拒绝启动；其他环境可不设（用内置演示密钥） | 无（非生产回退演示密钥） |
+| `CAR_MGMT_DB_PATH` | SQLite 库文件路径（测试/多环境隔离用） | `data/car_mgmt.db` |
+
+`.env.example` 有占位示例（无真实密钥），复制为 `.env` 后填写；`.env` 不要提交。
+
+## 生产启动（永不 seed）
+
+1. 设置环境变量：`APP_ENV=production`、`SECRET_KEY=<强随机密钥>`、
+   `CAR_MGMT_DB_PATH=<生产库路径>`。
+2. 建表：`python scripts/init_db.py`（幂等，部署步骤显式调用；应用 import 时不建表）。
+3. 建首个管理员：`ADMIN_USERNAME=admin ADMIN_PASSWORD='<强密码>' python scripts/create_admin.py`
+   （库中已有 admin 时拒绝覆盖；重置需显式 `--reset-password`）。
+4. 启动：`gunicorn app:app --bind 0.0.0.0:$PORT --workers 2`
+   （`APP_ENV=production` 且未设 `SECRET_KEY` 时应用直接拒绝启动）。
+
+`seed.py` / `scripts/init_demo.py` 在 `APP_ENV=production` 下**任何参数都拒绝执行**；
+删除重建演示库必须同时满足 `APP_ENV ∈ {development, demo, testing}` 且带 `--confirm-reset`。
+`Procfile` / `render.yaml` 的启动命令已移除 seed（render.yaml 仅用于客户演示，`APP_ENV=demo`）。
 
 ## 默认账号（密码统一 123456）
 
@@ -62,21 +87,40 @@ python app.py                     # 启动，浏览器打开 http://127.0.0.1:50
 - 微信登录、登录 IP 限制
 - 员工微信小程序（现场拍照、查车、审批）、客户小程序（看车、预约、查售后）
 - 图片/附件上传（当前检测照片仅文本备注字段 `photos_note`）
-- CSRF 防护、密码强度策略、操作审计导出
+- 密码强度策略、登录限流、操作审计导出（CSRF 防护与退出改 POST 已在批次 A 完成）
 
 ## 目录结构
 
 ```
 car-mgmt/
-  app.py            # Flask 应用与全部路由
-  db.py             # 建表、连接、通用查询、操作日志
-  seed.py           # 种子数据（先清空再插入，可重复跑）
-  requirements.txt  # 仅 flask
+  app.py            # Flask 应用与全部路由（含 CSRF、APP_ENV/SECRET_KEY 启动校验）
+  db.py             # 建表、连接、通用查询、操作日志（DB_PATH 支持 CAR_MGMT_DB_PATH 覆盖）
+  seed.py           # 演示数据：load_demo_data()（安全）+ 受控的 --confirm-reset 重建
+  scripts/
+    init_db.py      # 显式建表（幂等），部署步骤调用
+    init_demo.py    # 建表后库为空则灌演示数据（生产拒绝）
+    create_admin.py # 创建首个管理员（防覆盖，需 --reset-password 才重置）
+  tests/            # unittest 回归测试（临时库，见下）
+  docs/任务书.md     # 《二手车管理系统 MVP 改进与开发任务书》
+  requirements.txt  # flask + gunicorn
+  .env.example      # 环境变量占位示例
+  Procfile / render.yaml  # 启动命令（无 seed；render.yaml 仅演示，APP_ENV=demo）
   README.md
-  data/car_mgmt.db  # SQLite 数据文件（运行后生成）
+  data/car_mgmt.db  # SQLite 数据文件（运行后生成，git 不跟踪）
   templates/        # 12 个 Jinja2 模板
-  static/           # style.css（深色主题+响应式）、app.js
+  static/           # style.css（深色主题+响应式）、app.js（含 CSRF token 注入）
 ```
+
+## 测试（批次 A）
+
+```bash
+cd car-mgmt
+python -m unittest discover -s tests -v
+```
+
+用例全部使用 `/tmp` 下临时数据库（`CAR_MGMT_DB_PATH` + `APP_ENV=testing`），
+绝不触碰 `data/car_mgmt.db`：启动不清库、生产缺密钥拒绝启动、生产 seed 被拒绝、
+CSRF 拦截与放行、工作台状态分布、整备受限详情（403/财务信息隐藏/链接修正）。
 
 ## 验证记录（2026-10-12）
 
