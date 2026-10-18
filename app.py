@@ -8,6 +8,8 @@ Flask + SQLite(sqlite3 标准库) + Jinja2 + 原生 CSS/JS，无构建步骤。
 import csv
 import io
 import os
+import secrets
+import sys
 from functools import wraps
 
 from flask import (Flask, Response, abort, flash, g, redirect, render_template,
@@ -17,10 +19,23 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import db
 
 app = Flask(__name__)
-# 生产部署可通过环境变量 SECRET_KEY 覆盖；未设置时用内置演示密钥
-app.secret_key = os.environ.get("SECRET_KEY", "car-mgmt-mvp-secret-change-me")
-# gunicorn 等 WSGI 服务器 import 本模块时也建表（幂等）
-db.init_db()
+
+# 运行环境：development / demo / testing / production，默认 development
+APP_ENV = os.environ.get("APP_ENV", "development")
+
+# 生产环境必须显式配置 SECRET_KEY，否则拒绝启动（不输出任何密钥内容）
+_secret_key = os.environ.get("SECRET_KEY")
+if APP_ENV == "production" and not _secret_key:
+    print(
+        "错误：APP_ENV=production 时必须设置 SECRET_KEY 环境变量，"
+        "应用拒绝启动。请配置强随机密钥后重试。",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+app.secret_key = _secret_key or "car-mgmt-mvp-secret-change-me"
+
+# 注意：import 本模块时不建表。本地开发用 `python app.py`（__main__ 里显式建表）；
+# 部署时由 scripts/init_db.py 等显式命令建表，避免多 worker 并发改结构。
 
 # ---------------------------------------------------------------- 常量
 ROLE_NAMES = {
@@ -136,6 +151,25 @@ def csv_response(filename, headers, rows):
 
 
 @app.before_request
+def ensure_csrf_token():
+    # 每个会话（登录/未登录均可）持有 CSRF token；GET /login 时也会生成，
+    # 保证登录 POST 可以校验
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+
+
+@app.before_request
+def check_csrf():
+    # 所有 POST 请求必须携带与会话一致的 CSRF token（表单字段或请求头）
+    if request.method == "POST":
+        submitted = request.form.get("csrf_token", "") or request.headers.get(
+            "X-CSRF-Token", ""
+        )
+        if not submitted or submitted != session.get("csrf_token"):
+            abort(400, description="CSRF 校验失败：缺少或无效的 csrf_token")
+
+
+@app.before_request
 def load_user():
     g.user = current_user()
     if g.user:
@@ -156,6 +190,7 @@ def inject_common():
         "user": getattr(g, "user", None),
         "menus": getattr(g, "menus", []),
         "pending_count": getattr(g, "pending", 0),
+        "csrf_token": session.get("csrf_token", ""),
     }
 
 
@@ -179,7 +214,10 @@ def login():
             (request.form.get("username", "").strip(),),
         )
         if u and check_password_hash(u["password_hash"], request.form.get("password", "")):
+            # 登录成功先清理旧会话（防会话固定），再写入新身份与新 CSRF token
+            session.clear()
             session["user_id"] = u["id"]
+            session["csrf_token"] = secrets.token_hex(32)
             g.user = current_user()
             log("登录", "账号", f"{u['name']} 登录系统")
             return redirect("/")
@@ -187,7 +225,7 @@ def login():
     return render_template("login.html", error=None)
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     log("退出登录", "账号", "")
@@ -207,6 +245,8 @@ def dashboard():
         "by_status": by_status,
         "sellable": by_status.get("在售", 0),
     }
+    # F11：模板直接遍历该列表，避免把字典键当对象导致显示方法对象
+    status_stats = [{"status": s, "count": by_status[s]} for s in STATUSES]
     capital = db.query_one(
         "SELECT COALESCE(SUM(buy_price),0) s FROM vehicles "
         "WHERE status IN ('待检测','待整备','整备中','待入库审核','在售')"
@@ -247,8 +287,9 @@ def dashboard():
 
     my_reworks = None
     if u["role"] == "rework":
+        # F15：携带 vehicle_id，模板用它构造车辆详情链接（此前误用工单 id）
         my_reworks = db.query(
-            """SELECT o.id, v.brand, v.model, v.plate, o.status
+            """SELECT o.id, o.vehicle_id, v.brand, v.model, v.plate, o.status
                FROM rework_orders o JOIN vehicles v ON v.id=o.vehicle_id
                WHERE o.assignee_id=? AND o.status != '已完成'
                ORDER BY o.id DESC""",
@@ -262,8 +303,8 @@ def dashboard():
            ORDER BY v.id DESC LIMIT 8"""
     )
     return render_template(
-        "dashboard.html", active="dashboard", stats=stats, capital=capital,
-        bought30=bought30, sold30=sold30, profit_rows=profit_rows,
+        "dashboard.html", active="dashboard", stats=stats, status_stats=status_stats,
+        capital=capital, bought30=bought30, sold30=sold30, profit_rows=profit_rows,
         my_orders=my_orders, my_reworks=my_reworks, recent_vehicles=recent_vehicles,
     )
 
@@ -298,16 +339,22 @@ def vehicles():
 
 @app.route("/vehicles/<int:vid>")
 @login_required
-@role_required("admin", "boss", "finance", "sales", "buyer")
+@role_required("admin", "boss", "finance", "sales", "buyer", "rework")
 def vehicle_detail(vid):
+    u = g.user
+    # F15：整备人员仅可查看分配给自己的工单对应的车辆（对象范围校验）
+    restricted = (u["role"] == "rework")
+    if restricted:
+        mine = db.query_one(
+            "SELECT id FROM rework_orders WHERE vehicle_id=? AND assignee_id=?",
+            (vid, u["id"]),
+        )
+        if not mine:
+            abort(403)
     rows = vehicle_rows("WHERE v.id=?", (vid,))
     if not rows:
         abort(404)
     v = rows[0]
-    so = db.query_one(
-        "SELECT price FROM sales_orders WHERE vehicle_id=? ORDER BY id DESC", (vid,)
-    )
-    v["sold_price"] = so["price"] if so else None
     inspections = db.query(
         "SELECT * FROM inspections WHERE vehicle_id=? ORDER BY id DESC", (vid,)
     )
@@ -322,40 +369,49 @@ def vehicle_detail(vid):
             "SELECT * FROM rework_items WHERE order_id=? ORDER BY id", (o["id"],)
         )
         o["items_total"] = sum(i["cost"] or 0 for i in o["items"])
-    ledger = db.query(
-        """SELECT l.*, u.name AS created_by_name FROM cost_ledger l
-           LEFT JOIN users u ON u.id=l.created_by
-           WHERE l.vehicle_id=? ORDER BY l.id""",
-        (vid,),
-    )
-    sales_orders = db.query(
-        """SELECT s.*, u.name AS sales_name FROM sales_orders s
-           LEFT JOIN users u ON u.id=s.sales_id
-           WHERE s.vehicle_id=? ORDER BY s.id DESC""",
-        (vid,),
-    )
-    logs = db.query(
-        """SELECT l.*, u.name AS name FROM operation_logs l
-           LEFT JOIN users u ON u.id=l.user_id
-           WHERE l.target=? ORDER BY l.created_at, l.id""",
-        (f"车辆#{vid}",),
-    )
-    timeline = [{
-        "time": v["created_at"],
-        "text": f"收车入库：{v['brand']}{v['model']}（{v['buyer_name'] or ''}），"
-                f"收购价 {v['buy_price'] or 0:.0f} 元",
-    }]
-    for l in logs:
-        timeline.append({
-            "time": l["created_at"],
-            "text": f"{l['action']}：{l['detail']}" if l["detail"] else l["action"],
-        })
-    timeline.sort(key=lambda x: x["time"])
+    if restricted:
+        # 受限视图：后端不再查询/传递财务与隐私数据，模板也不渲染这些区块
+        ledger, sales_orders, logs, timeline = [], [], [], []
+        v["sold_price"] = None
+    else:
+        so = db.query_one(
+            "SELECT price FROM sales_orders WHERE vehicle_id=? ORDER BY id DESC", (vid,)
+        )
+        v["sold_price"] = so["price"] if so else None
+        ledger = db.query(
+            """SELECT l.*, u.name AS created_by_name FROM cost_ledger l
+               LEFT JOIN users u ON u.id=l.created_by
+               WHERE l.vehicle_id=? ORDER BY l.id""",
+            (vid,),
+        )
+        sales_orders = db.query(
+            """SELECT s.*, u.name AS sales_name FROM sales_orders s
+               LEFT JOIN users u ON u.id=s.sales_id
+               WHERE s.vehicle_id=? ORDER BY s.id DESC""",
+            (vid,),
+        )
+        logs = db.query(
+            """SELECT l.*, u.name AS name FROM operation_logs l
+               LEFT JOIN users u ON u.id=l.user_id
+               WHERE l.target=? ORDER BY l.created_at, l.id""",
+            (f"车辆#{vid}",),
+        )
+        timeline = [{
+            "time": v["created_at"],
+            "text": f"收车入库：{v['brand']}{v['model']}（{v['buyer_name'] or ''}），"
+                    f"收购价 {v['buy_price'] or 0:.0f} 元",
+        }]
+        for l in logs:
+            timeline.append({
+                "time": l["created_at"],
+                "text": f"{l['action']}：{l['detail']}" if l["detail"] else l["action"],
+            })
+        timeline.sort(key=lambda x: x["time"])
     threshold = float(get_setting("buy_high_price_threshold", "150000") or 150000)
     return render_template(
         "vehicle_detail.html", active="vehicles", vehicle=v, inspections=inspections,
         rework_orders=orders, ledger=ledger, sales_orders=sales_orders,
-        logs=logs, timeline=timeline, threshold=threshold,
+        logs=logs, timeline=timeline, threshold=threshold, restricted=restricted,
     )
 
 
