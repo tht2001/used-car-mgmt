@@ -7,7 +7,7 @@
 
 <div class="card">
   <h2>基本资料</h2>
-  {% if vehicle.buy_price > threshold %}
+  {% if not restricted and vehicle.buy_price > threshold %}
   <div class="notice">收购价超过阈值（{{ "%.0f"|format(threshold) }} 元），已自动生成高价审批单。</div>
   {% endif %}
   <dl class="dl-grid">
@@ -19,18 +19,23 @@
     <div><dt>颜色</dt><dd>{{ vehicle.color or '-' }}</dd></div>
     <div><dt>里程(万km)</dt><dd>{{ vehicle.mileage if vehicle.mileage is not none else '-' }}</dd></div>
     <div><dt>VIN</dt><dd>{{ vehicle.vin or '-' }}</dd></div>
+    {% if not restricted %}
     <div><dt>收购价(元)</dt><dd>{{ "%.0f"|format(vehicle.buy_price) }}</dd></div>
+    {% endif %}
     <div><dt>收购员</dt><dd>{{ vehicle.buyer_name or '-' }}</dd></div>
     <div><dt>销售员</dt><dd>{{ vehicle.sales_name or '-' }}</dd></div>
+    {% if not restricted %}
     <div><dt>客户姓名</dt><dd>{{ vehicle.customer_name or '-' }}</dd></div>
     <div><dt>客户电话</dt><dd>{{ vehicle.customer_phone or '-' }}</dd></div>
     <div><dt>成交价(元)</dt><dd>{{ "%.0f"|format(vehicle.sold_price) if vehicle.sold_price else '-' }}</dd></div>
+    {% endif %}
     <div><dt>入库时间</dt><dd>{{ vehicle.created_at }}</dd></div>
     <div><dt>当前状态</dt><dd>{{ vehicle.status }}</dd></div>
     <div class="full" style="grid-column:1/-1"><dt>备注</dt><dd>{{ vehicle.note or '-' }}</dd></div>
   </dl>
 </div>
 
+{% if not restricted %}
 <div class="card">
   <h2>操作区</h2>
   {% if vehicle.status == '待检测' %}
@@ -75,7 +80,9 @@
   <p style="color:var(--text-faint)">当前状态无可用操作。</p>
   {% endif %}
 </div>
+{% endif %}
 
+{% if not restricted %}
 <div class="card">
   <h2>全生命周期时间线</h2>
   <div class="timeline">
@@ -87,6 +94,7 @@
     {% endfor %}
   </div>
 </div>
+{% endif %}
 
 <div class="card">
   <h2>检测记录</h2>
@@ -135,6 +143,7 @@
   {% endfor %}
 </div>
 
+{% if not restricted %}
 <div class="card">
   <h2>成本明细</h2>
   <div class="table-wrap">
@@ -161,6 +170,9 @@
   </div>
 </div>
 
+{% endif %}
+
+{% if not restricted %}
 <div class="card">
   <h2>销售订单</h2>
   <div class="table-wrap">
@@ -186,7 +198,9 @@
   </table>
   </div>
 </div>
+{% endif %}
 
+{% if not restricted %}
 <div class="card">
   <h2>操作记录</h2>
   <div class="table-wrap">
@@ -205,4 +219,5 @@
   </table>
   </div>
 </div>
+{% endif %}
 {% endblock %}

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token }}">
 <title>{% block title %}车管MVP{% endblock %}</title>
 <link rel="stylesheet" href="/static/style.css">
 {% block extra_head %}{% endblock %}
@@ -29,7 +30,9 @@
       {% endif %}
     </a>
     <span class="user-info"><strong>{{ user.name }}</strong> {{ user.role_name }}</span>
-    <a href="/logout" class="btn btn-ghost btn-sm">退出</a>
+    <form method="post" action="/logout" style="display:inline;margin:0">
+      <button type="submit" class="btn btn-ghost btn-sm">退出</button>
+    </form>
   </header>
   <main class="content">
     {% with msgs = get_flashed_messages(with_categories=true) %}
