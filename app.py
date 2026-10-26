@@ -13,7 +13,7 @@ import sys
 from functools import wraps
 
 from flask import (Flask, Response, abort, flash, g, redirect, render_template,
-                   request, session)
+                   request, send_file, session)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
@@ -206,6 +206,12 @@ def err_404(e):
             '<a href="/">返回工作台</a>'), 404
 
 # ---------------------------------------------------------------- 登录/退出
+@app.route("/favicon.ico")
+def favicon():
+    # 浏览器默认请求根路径 /favicon.ico；以 SVG 图标响应（现代浏览器均支持）
+    return send_file("static/favicon.svg", mimetype="image/svg+xml")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
