@@ -214,6 +214,7 @@ VEHICLE_EXTRA_COLUMNS = [
     ("weidian_deposit", "REAL"),     # 微店订金（元）
     # 5 评估采购信息
     ("purchase_type", "TEXT"),       # 采购类型：收购/寄售/置换/其他
+    ("purchase_source", "TEXT"),     # 收购来源：同行批发/朋友/客户介绍/门店/粉丝/58资源包/懂车帝资源包/中介/调同行车
     ("paid_amount", "REAL"),         # 已付金额（元）
     ("payee_company", "TEXT"),       # 收款公司
     ("purchase_date", "TEXT"),       # 采购日期
@@ -285,6 +286,8 @@ def init_db() -> None:
         for ddl in SCHEMA:
             conn.execute(ddl)
         _migrate_vehicle_columns(conn)
+        _migrate_cost_ledger_phase(conn)
+        _migrate_sales_rebates(conn)
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             DEFAULT_SETTINGS,
@@ -292,6 +295,38 @@ def init_db() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_cost_ledger_phase(conn: sqlite3.Connection) -> None:
+    """cost_ledger 增加 phase 列（入库前/入库后），旧行按类别回填。
+
+    类别为“整备费用”的旧行均为整备产生，归入“入库后”；其余旧行
+    无法判定归属，phase 留空，计入“未分类费用”，仍计入总成本。
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(cost_ledger)")}
+    if "phase" not in cols:
+        conn.execute("ALTER TABLE cost_ledger ADD COLUMN phase TEXT")
+        conn.execute(
+            "UPDATE cost_ledger SET phase='入库后' WHERE category='整备费用'"
+        )
+
+
+SALES_REBATE_COLUMNS = [
+    ("loan_rebate", "REAL DEFAULT 0"),       # 贷款返点
+    ("gps_rebate", "REAL DEFAULT 0"),        # GPS 返点
+    ("insurance_rebate", "REAL DEFAULT 0"),  # 保险返点
+    ("warranty_profit", "REAL DEFAULT 0"),   # 质保利润
+    ("other_income", "REAL DEFAULT 0"),      # 其他（成交相关收入）
+    ("sale_channel", "TEXT DEFAULT ''"),     # 销售渠道：进店客户/抖音客户/懂车帝/…
+]
+
+
+def _migrate_sales_rebates(conn: sqlite3.Connection) -> None:
+    """sales_orders 增加返点列（合计成交价 AW 的组成部分）与销售渠道，幂等补列。"""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(sales_orders)")}
+    for name, ddl in SALES_REBATE_COLUMNS:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE sales_orders ADD COLUMN {name} {ddl}")
 
 
 def _migrate_vehicle_columns(conn: sqlite3.Connection) -> None:

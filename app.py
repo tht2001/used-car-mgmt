@@ -25,6 +25,7 @@ ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
 ALLOWED_VIDEO_EXTS = {"mp4", "mov", "avi", "webm", "m4v"}
 
 import db
+import pricing
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 附件单次请求上限 32MB
@@ -65,6 +66,7 @@ MENUS = [
     ("rework", "整备", "/rework", ["admin", "boss", "rework"]),
     ("sales", "销售", "/sales", ["admin", "boss", "sales"]),
     ("finance", "财务", "/finance", ["admin", "boss", "finance"]),
+    ("ledger", "库存总账", "/ledger", ["admin", "boss", "finance", "buyer"]),
     ("approvals", "审批", "/approvals", ["admin", "boss", "finance", "sales", "buyer", "rework"]),
     ("reports", "报表", "/reports", ["admin", "boss", "finance"]),
     ("settings", "系统设置", "/settings", ["admin"]),
@@ -191,7 +193,11 @@ def pending_count(u):
 
 VEHICLE_COLS = """v.*, u1.name AS buyer_name, u2.name AS sales_name,
   COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id AND category='整备费用'),0) AS rework_cost,
-  COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id AND category='其他'),0) AS other_cost"""
+  COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id AND category='其他'),0) AS other_cost,
+  COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id AND phase='入库前'),0) AS pre_cost,
+  COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id AND phase='入库后'),0) AS post_cost,
+  COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id AND phase IS NULL),0) AS unphased_cost,
+  COALESCE((SELECT SUM(amount) FROM cost_ledger WHERE vehicle_id=v.id),0) AS cost_total"""
 VEHICLE_FROM = ("FROM vehicles v LEFT JOIN users u1 ON u1.id=v.buyer_id "
                 "LEFT JOIN users u2 ON u2.id=v.sales_id")
 
@@ -199,8 +205,30 @@ VEHICLE_FROM = ("FROM vehicles v LEFT JOIN users u1 ON u1.id=v.buyer_id "
 def vehicle_rows(where="", args=(), order="ORDER BY v.id DESC"):
     rows = db.query(f"SELECT {VEHICLE_COLS} {VEHICLE_FROM} {where} {order}", args)
     for r in rows:
-        r["total_cost"] = (r["buy_price"] or 0) + (r["rework_cost"] or 0) + (r["other_cost"] or 0)
+        # 总成本 = 收购价 + 全部费用台账（含新类目；旧口径仅含整备/其他两类）
+        r["total_cost"] = (r["buy_price"] or 0) + (r["cost_total"] or 0)
+        attach_pricing(r)
     return rows
+
+
+def attach_pricing(r):
+    """给车辆行附加定价链（pricing.compute_pricing）与库存时间。
+
+    入库时间口径：采购日期 purchase_date，缺失时取建单日期（见 pricing.stock_in_date）。
+    """
+    r["stock_in_date"] = pricing.stock_in_date(r)
+    r["days_in_stock"] = pricing.stock_days(r["stock_in_date"])
+    r["pricing"] = pricing.compute_pricing(
+        r["buy_price"], r["pre_cost"], r["post_cost"], r["days_in_stock"]
+    )
+    return r
+
+
+def latest_sale(vid):
+    """该车最新一笔销售订单（含返点列），无则返回 None。"""
+    return db.query_one(
+        "SELECT * FROM sales_orders WHERE vehicle_id=? ORDER BY id DESC", (vid,)
+    )
 
 
 def csv_response(filename, headers, rows):
@@ -456,11 +484,15 @@ def vehicle_detail(vid):
         # 受限视图：后端不再查询/传递财务与隐私数据，模板也不渲染这些区块
         ledger, sales_orders, logs, timeline = [], [], [], []
         v["sold_price"] = None
+        v["total_deal"] = None
+        v["turnover_days"] = None
     else:
-        so = db.query_one(
-            "SELECT price FROM sales_orders WHERE vehicle_id=? ORDER BY id DESC", (vid,)
-        )
+        so = latest_sale(vid)
         v["sold_price"] = so["price"] if so else None
+        v["total_deal"] = pricing.total_deal_price(so)
+        v["turnover_days"] = pricing.turnover_days(
+            v["stock_in_date"], so["created_at"][:10] if so else None
+        )
         ledger = db.query(
             """SELECT l.*, u.name AS created_by_name FROM cost_ledger l
                LEFT JOIN users u ON u.id=l.created_by
@@ -496,6 +528,90 @@ def vehicle_detail(vid):
         rework_orders=orders, ledger=ledger, sales_orders=sales_orders,
         logs=logs, timeline=timeline, threshold=threshold, restricted=restricted,
         files=files,
+        cost_phases=pricing.COST_PHASES,
+        pre_cost_categories=pricing.PRE_COST_CATEGORIES,
+        post_cost_categories=pricing.POST_COST_CATEGORIES,
+        can_add_cost=(u["role"] in ("admin", "boss", "finance", "buyer")),
+    )
+
+
+@app.route("/vehicles/<int:vid>/costs", methods=["POST"])
+@login_required
+@role_required("admin", "boss", "finance", "buyer")
+def vehicle_add_cost(vid):
+    """费用分摊登记：入库前/入库后 + 表格类目 + 金额（只增不改，留痕）。
+
+    费用明细表口径：按车归集，入库前费用进 AB、入库后费用进 AC，参与定价链。
+    """
+    v = db.query_one("SELECT id FROM vehicles WHERE id=?", (vid,))
+    if not v:
+        abort(404)
+    phase = request.form.get("phase", "").strip()
+    category = request.form.get("category", "").strip()
+    amount = float(request.form.get("amount", "") or 0)
+    note = request.form.get("note", "").strip()
+    allowed = (
+        pricing.PRE_COST_CATEGORIES if phase == "入库前"
+        else pricing.POST_COST_CATEGORIES if phase == "入库后" else []
+    )
+    if phase not in pricing.COST_PHASES or category not in allowed or amount <= 0:
+        flash("费用归属、类别与金额填写不正确", "error")
+        return redirect(f"/vehicles/{vid}")
+    db.execute(
+        "INSERT INTO cost_ledger(vehicle_id,phase,category,amount,note,created_by)"
+        " VALUES(?,?,?,?,?,?)",
+        (vid, phase, category, amount, note, g.user["id"]),
+    )
+    log("费用登记", f"车辆#{vid}", f"{phase}/{category} {amount:.0f}元")
+    flash("费用已登记，计入车辆成本", "success")
+    return redirect(f"/vehicles/{vid}")
+
+
+@app.route("/ledger")
+@login_required
+@role_required("admin", "boss", "finance", "buyer")
+def ledger():
+    """库存总账：客户管理表单「库存表」财务段的系统版。
+
+    每车一行：打款价、入库前/后费用、车辆成本、定价链四种标价、
+    成交价（合同价 + 返点）、收购/销售归属、库存与周转天数。
+    """
+    f_status = request.args.get("status", "")
+    f_brand = request.args.get("brand", "")
+    q = request.args.get("q", "").strip()
+    where, args = [], []
+    if f_status:
+        where.append("v.status=?")
+        args.append(f_status)
+    if f_brand:
+        where.append("v.brand=?")
+        args.append(f_brand)
+    if q:
+        where.append("(v.brand LIKE ? OR v.model LIKE ? OR v.plate LIKE ? "
+                     "OR v.vin LIKE ? OR v.customer_name LIKE ?)")
+        args += [f"%{q}%"] * 5
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = vehicle_rows(clause, args)
+    for r in rows:
+        sale = latest_sale(r["id"])
+        r["sale_price"] = sale["price"] if sale else None
+        r["total_deal"] = pricing.total_deal_price(sale)
+        r["sale_channel"] = sale["sale_channel"] if sale else None
+        r["sold_on"] = sale["created_at"][:10] if sale else None
+        r["turnover_days"] = pricing.turnover_days(r["stock_in_date"], r["sold_on"])
+        r["vin6"] = pricing.vin_last6(r["vin"])
+    brands = [r["brand"] for r in db.query("SELECT DISTINCT brand FROM vehicles ORDER BY brand")]
+    totals = {
+        k: sum((r["pricing"][k] or 0) for r in rows)
+        for k in ("buy_price", "pre_cost", "post_cost", "cost",
+                  "profit_value", "wholesale_price", "floor_price",
+                  "showroom_price", "online_price")
+    }
+    totals["deal"] = sum((r["total_deal"] or 0) for r in rows)
+    return render_template(
+        "ledger.html", active="ledger", rows=rows, totals=totals,
+        statuses=STATUSES, f_status=f_status, brands=brands,
+        f_brand=f_brand, q=q,
     )
 
 
@@ -633,6 +749,7 @@ def acquisition():
             # 5 评估采购信息
             "buy_price": buy_price,
             "purchase_type": _form_text("purchase_type"),
+            "purchase_source": _form_text("purchase_source"),
             "paid_amount": _form_float("paid_amount"),
             "payee_company": _form_text("payee_company"),
             "purchase_date": _form_text("purchase_date"),
@@ -784,9 +901,10 @@ def rework_add_item(oid):
         "INSERT INTO rework_items(order_id,item,cost,supplier,pay_method) VALUES(?,?,?,?,?)",
         (oid, item, cost, supplier, pay_method),
     )
-    # 费用自动写入成本台账（只增不改）
+    # 费用自动写入成本台账（只增不改）；整备发生在入库后，归入“入库后”费用
     db.execute(
-        "INSERT INTO cost_ledger(vehicle_id,category,amount,note,created_by) VALUES(?,'整备费用',?,?,?)",
+        "INSERT INTO cost_ledger(vehicle_id,phase,category,amount,note,created_by)"
+        " VALUES(?,'入库后','整备费用',?,?,?)",
         (o["vehicle_id"], cost, item, g.user["id"]),
     )
     if o["status"] == "待处理":
@@ -832,14 +950,25 @@ def sales():
         if not customer or price <= 0:
             flash("客户姓名和成交价为必填项", "error")
             return redirect("/sales")
+        rebates = {
+            k: float(request.form.get(k, "") or 0)
+            for k in ("loan_rebate", "gps_rebate", "insurance_rebate",
+                      "warranty_profit", "other_income")
+        }
         oid = db.execute(
             """INSERT INTO sales_orders(vehicle_id,sales_id,customer,phone,price,discount,
-                                        finance_plan,contract_no)
-               VALUES(?,?,?,?,?,?,?,?)""",
+                                        finance_plan,contract_no,loan_rebate,gps_rebate,
+                                        insurance_rebate,warranty_profit,other_income,
+                                        sale_channel)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (vid, g.user["id"], customer, request.form.get("phone", "").strip(),
              price, float(request.form.get("discount", "") or 0),
              request.form.get("finance_plan", "").strip(),
-             request.form.get("contract_no", "").strip()),
+             request.form.get("contract_no", "").strip(),
+             rebates["loan_rebate"], rebates["gps_rebate"],
+             rebates["insurance_rebate"], rebates["warranty_profit"],
+             rebates["other_income"],
+             request.form.get("sale_channel", "").strip()),
         )
         db.execute("UPDATE vehicles SET sales_id=? WHERE id=?", (g.user["id"], vid))
         log("创建销售订单", f"车辆#{vid}", f"客户{customer}，成交价{price:.0f}元")
