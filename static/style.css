@@ -237,3 +237,36 @@ input:focus, select:focus, textarea:focus {
   .topbar { flex-wrap: wrap; padding: 10px 16px; }
   .topbar .search-form input { width: 150px; }
 }
+
+/* ---------- 收车单 7 区块 ---------- */
+.section-nav {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  position: sticky; top: 58px; z-index: 40;
+  background: var(--bg);
+  padding: 8px 0; margin-bottom: 8px;
+  border-bottom: 1px solid var(--card-border);
+}
+.section-nav a {
+  padding: 6px 12px; border: 1px solid var(--card-border);
+  border-radius: 999px; color: var(--text-dim); font-size: 13px;
+}
+.section-nav a:hover { color: var(--text); text-decoration: none; border-color: var(--primary); }
+.section-title {
+  font-size: 15px; font-weight: 600; color: var(--text);
+  margin: 20px 0 10px; padding-top: 4px;
+  scroll-margin-top: 110px;
+}
+.section-title:first-of-type { margin-top: 4px; }
+.field-hint { display: block; font-size: 12px; color: var(--text-faint); margin-top: 4px; }
+
+/* ---------- 车辆照片与视频 ---------- */
+.gallery { display: flex; flex-wrap: wrap; gap: 12px; }
+.gallery .thumb {
+  width: 160px; height: 120px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--card-border);
+  display: block;
+}
+.gallery .detail-video {
+  width: 320px; max-width: 100%; border-radius: 8px;
+  border: 1px solid var(--card-border); background: #000;
+}

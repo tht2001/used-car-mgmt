@@ -5,33 +5,176 @@
   <span class="badge badge-{{ vehicle.status }}">{{ vehicle.status }}</span>
 </h1>
 
+{% macro f_txt(label, value) %}<div><dt>{{ label }}</dt><dd>{{ value or '-' }}</dd></div>{% endmacro %}
+{% macro f_wan(label, value) %}<div><dt>{{ label }}</dt><dd>{% if value %}{{ "%.2f"|format(value / 10000) }} 万元{% else %}-{% endif %}</dd></div>{% endmacro %}
+{% macro f_yuan(label, value) %}<div><dt>{{ label }}</dt><dd>{% if value %}{{ "%.0f"|format(value) }} 元{% else %}-{% endif %}</dd></div>{% endmacro %}
+{% macro f_days(label, value) %}<div><dt>{{ label }}</dt><dd>{% if value is not none %}{{ value }} 天{% else %}-{% endif %}</dd></div>{% endmacro %}
+
 <div class="card">
-  <h2>基本资料</h2>
-  {% if not restricted and vehicle.buy_price > threshold %}
+  <h2>照片与视频</h2>
+  {% if files %}
+  <div class="gallery">
+    {% for f in files if f.kind == 'vehicle' %}
+    <a href="/static/{{ f.path }}" target="_blank" title="{{ f.original_name }}"><img class="thumb" src="/static/{{ f.path }}" alt="{{ f.original_name }}"></a>
+    {% endfor %}
+    {% if not restricted %}
+    {% for f in files if f.kind == 'cert' %}
+    <a href="/static/{{ f.path }}" target="_blank" title="证件资料：{{ f.original_name }}"><img class="thumb" src="/static/{{ f.path }}" alt="{{ f.original_name }}"></a>
+    {% endfor %}
+    {% for f in files if f.kind == 'other' %}
+    <a href="/static/{{ f.path }}" target="_blank" title="其他照片：{{ f.original_name }}"><img class="thumb" src="/static/{{ f.path }}" alt="{{ f.original_name }}"></a>
+    {% endfor %}
+    {% for f in files if f.kind == 'video' %}
+    <video class="detail-video" controls preload="metadata" src="/static/{{ f.path }}" title="{{ f.original_name }}"></video>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% else %}
+  <p style="color:var(--text-faint)">暂无照片或视频。</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>1 · 基础信息</h2>
+  <dl class="dl-grid">
+    {{ f_txt('车辆ID', vehicle.id) }}
+    {{ f_txt('车辆类型', vehicle.vehicle_type) }}
+    {{ f_txt('品牌', vehicle.brand) }}
+    {{ f_txt('车型', vehicle.model) }}
+    <div><dt>表显里程</dt><dd>{% if vehicle.mileage is not none %}{{ vehicle.mileage }} 万公里{% else %}-{% endif %}</dd></div>
+    {{ f_txt('首次上牌', vehicle.first_plate_date or '未上牌') }}
+    {{ f_txt('车身颜色', vehicle.color) }}
+    {{ f_txt('车牌号', vehicle.plate) }}
+    {{ f_txt('VIN', vehicle.vin) }}
+    {{ f_txt('销售方式', vehicle.sales_mode) }}
+    {{ f_txt('评估师', vehicle.evaluator) }}
+    {{ f_txt('门店', vehicle.store) }}
+    {{ f_txt('收购员', vehicle.buyer_name) }}
+    {{ f_txt('销售员', vehicle.sales_name) }}
+    {{ f_txt('入库时间', vehicle.created_at) }}
+    {{ f_txt('当前状态', vehicle.status) }}
+    {% if vehicle.year %}{{ f_txt('年份(旧数据)', vehicle.year) }}{% endif %}
+    <div class="full" style="grid-column:1/-1"><dt>备注</dt><dd>{{ vehicle.note or '-' }}</dd></div>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>2 · 车辆档案</h2>
+  <dl class="dl-grid">
+    {{ f_txt('车辆编号', vehicle.vehicle_no) }}
+    {{ f_txt('库存状态', vehicle.stock_status) }}
+    {{ f_txt('库存区域', vehicle.stock_area) }}
+    {{ f_txt('库存位置', vehicle.stock_location) }}
+    <div class="full" style="grid-column:1/-1"><dt>库存描述</dt><dd>{{ vehicle.stock_desc or '-' }}</dd></div>
+    {{ f_txt('微店上架', vehicle.weidian_status) }}
+    {{ f_txt('使用性质', vehicle.use_type) }}
+    {{ f_txt('所有权归属', vehicle.ownership) }}
+    {{ f_txt('发动机号', vehicle.engine_no) }}
+    {{ f_txt('出厂日期', vehicle.manufacture_date) }}
+    {{ f_txt('行驶证车辆类型', vehicle.license_vehicle_type) }}
+    {{ f_txt('行驶证品牌型号', vehicle.license_model) }}
+    {{ f_txt('登记证号', vehicle.registration_no) }}
+    {{ f_txt('转入地车辆管理所', vehicle.transfer_dmv) }}
+    {{ f_txt('内饰颜色', vehicle.interior_color) }}
+    {{ f_wan('新车指导价', vehicle.new_car_price) }}
+    {{ f_wan('购置税', vehicle.purchase_tax) }}
+    {{ f_yuan('加装费用', vehicle.addon_cost) }}
+    {{ f_txt('加装内容', vehicle.addon_content) }}
+    {{ f_txt('所在地', vehicle.location) }}
+    {{ f_days('库龄预警天数', vehicle.stock_age_warn_days) }}
+    {{ f_days('预定预警天数', vehicle.booking_warn_days) }}
+    {{ f_days('微店上架预警天数', vehicle.weidian_warn_days) }}
+    {{ f_days('车源上架预警天数', vehicle.listing_warn_days) }}
+  </dl>
+</div>
+
+<div class="card">
+  <h2>3 · 车况详情</h2>
+  <dl class="dl-grid">
+    {{ f_txt('车况概述', vehicle.condition_summary) }}
+    <div class="full" style="grid-column:1/-1"><dt>车况(对内)</dt><dd>{{ vehicle.condition_internal or '-' }}</dd></div>
+  </dl>
+</div>
+
+{% if not restricted %}
+<div class="card">
+  <h2>4 · 价格信息</h2>
+  <dl class="dl-grid">
+    {{ f_wan('网络标价', vehicle.online_price) }}
+    {{ f_wan('分期价', vehicle.installment_price) }}
+    {{ f_wan('展厅标价', vehicle.showroom_price) }}
+    {{ f_wan('销售底价', vehicle.floor_price) }}
+    {{ f_wan('经理底价', vehicle.manager_price) }}
+    {{ f_wan('批发价', vehicle.wholesale_price) }}
+    {{ f_txt('展示批发价', vehicle.show_wholesale) }}
+    {{ f_wan('联盟批发价', vehicle.alliance_price) }}
+    {{ f_yuan('微店订金', vehicle.weidian_deposit) }}
+  </dl>
+</div>
+
+<div class="card">
+  <h2>5 · 评估采购信息</h2>
+  {% if vehicle.buy_price > threshold %}
   <div class="notice">收购价超过阈值（{{ "%.0f"|format(threshold) }} 元），已自动生成高价审批单。</div>
   {% endif %}
   <dl class="dl-grid">
-    <div><dt>车辆ID</dt><dd>{{ vehicle.id }}</dd></div>
-    <div><dt>车牌号</dt><dd>{{ vehicle.plate }}</dd></div>
-    <div><dt>品牌</dt><dd>{{ vehicle.brand }}</dd></div>
-    <div><dt>车型</dt><dd>{{ vehicle.model }}</dd></div>
-    <div><dt>年份</dt><dd>{{ vehicle.year or '-' }}</dd></div>
-    <div><dt>颜色</dt><dd>{{ vehicle.color or '-' }}</dd></div>
-    <div><dt>里程(万km)</dt><dd>{{ vehicle.mileage if vehicle.mileage is not none else '-' }}</dd></div>
-    <div><dt>VIN</dt><dd>{{ vehicle.vin or '-' }}</dd></div>
-    {% if not restricted %}
-    <div><dt>收购价(元)</dt><dd>{{ "%.0f"|format(vehicle.buy_price) }}</dd></div>
-    {% endif %}
-    <div><dt>收购员</dt><dd>{{ vehicle.buyer_name or '-' }}</dd></div>
-    <div><dt>销售员</dt><dd>{{ vehicle.sales_name or '-' }}</dd></div>
-    {% if not restricted %}
-    <div><dt>客户姓名</dt><dd>{{ vehicle.customer_name or '-' }}</dd></div>
-    <div><dt>客户电话</dt><dd>{{ vehicle.customer_phone or '-' }}</dd></div>
-    <div><dt>成交价(元)</dt><dd>{{ "%.0f"|format(vehicle.sold_price) if vehicle.sold_price else '-' }}</dd></div>
-    {% endif %}
-    <div><dt>入库时间</dt><dd>{{ vehicle.created_at }}</dd></div>
-    <div><dt>当前状态</dt><dd>{{ vehicle.status }}</dd></div>
-    <div class="full" style="grid-column:1/-1"><dt>备注</dt><dd>{{ vehicle.note or '-' }}</dd></div>
+    {{ f_txt('采购类型', vehicle.purchase_type) }}
+    {{ f_yuan('采购价', vehicle.buy_price) }}
+    {{ f_yuan('已付金额', vehicle.paid_amount) }}
+    {{ f_txt('收款公司', vehicle.payee_company) }}
+    {{ f_txt('采购日期', vehicle.purchase_date) }}
+    {{ f_txt('采购过户方式', vehicle.transfer_method) }}
+    {{ f_txt('收车方式', vehicle.pickup_method) }}
+    {{ f_txt('背户人姓名', vehicle.beihu_name) }}
+    {{ f_txt('背户人手机号', vehicle.beihu_phone) }}
+    {{ f_txt('背户人身份证', vehicle.beihu_idcard) }}
+    {{ f_txt('企业名称', vehicle.beihu_company) }}
+    {{ f_txt('预计整备开始', vehicle.rework_plan_start) }}
+    {{ f_txt('预计整备完成', vehicle.rework_plan_end) }}
+    {{ f_txt('预计整备项', vehicle.rework_plan_items) }}
+    {{ f_yuan('预计整备费用', vehicle.rework_plan_cost) }}
+    {{ f_yuan('成交价', vehicle.sold_price) }}
+  </dl>
+</div>
+
+<div class="card">
+  <h2>6 · 车主信息</h2>
+  <dl class="dl-grid">
+    {{ f_txt('客户类型', vehicle.owner_type) }}
+    {{ f_txt('客户来源', vehicle.owner_source) }}
+    {{ f_txt('车主姓名', vehicle.customer_name) }}
+    {{ f_txt('手机号码', vehicle.customer_phone) }}
+    {{ f_txt('收款人', vehicle.payee_name) }}
+    {{ f_txt('银行卡号', vehicle.bank_card) }}
+    {{ f_txt('开户行', vehicle.bank_name) }}
+    {{ f_txt('身份证号', vehicle.owner_idcard) }}
+    {{ f_txt('其他账户', vehicle.other_account) }}
+    {{ f_txt('地址', vehicle.owner_address) }}
+  </dl>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>7 · 牌证信息</h2>
+  <dl class="dl-grid">
+    {{ f_txt('登记证', vehicle.cert_registration) }}
+    {{ f_txt('行驶证', vehicle.cert_driving) }}
+    {{ f_txt('原车主身份证', vehicle.cert_owner_idcard) }}
+    {{ f_txt('过户视频', vehicle.cert_transfer_video) }}
+    {{ f_txt('进项发票', vehicle.cert_invoice) }}
+    {{ f_txt('一致性证书', vehicle.cert_conformity) }}
+    {{ f_txt('环保清单', vehicle.cert_env) }}
+    {{ f_txt('合格证', vehicle.cert_qualification) }}
+    {{ f_txt('车辆牌照', vehicle.cert_plate_photo) }}
+    <div><dt>过户次数</dt><dd>{% if vehicle.transfer_count is not none %}{{ vehicle.transfer_count }} 次{% else %}-{% endif %}</dd></div>
+    <div><dt>钥匙数量</dt><dd>{% if vehicle.key_count is not none %}{{ vehicle.key_count }} 把{% else %}-{% endif %}</dd></div>
+    {{ f_txt('交强险', vehicle.insurance_compulsory) }}
+    {{ f_txt('交强险到期', vehicle.insurance_compulsory_expiry) }}
+    {{ f_txt('商业险', vehicle.insurance_commercial) }}
+    {{ f_txt('商业险到期', vehicle.insurance_commercial_expiry) }}
+    {{ f_yuan('商业险金额', vehicle.insurance_commercial_amount) }}
+    {{ f_txt('年检到期日', vehicle.annual_inspection_expiry) }}
+    <div class="full" style="grid-column:1/-1"><dt>备注</dt><dd>{{ vehicle.cert_note or '-' }}</dd></div>
   </dl>
 </div>
 

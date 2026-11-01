@@ -191,10 +191,13 @@ class TestReworkRestrictedDetail(BatchABase):
         self.assertNotIn("成本明细", html)
         self.assertNotIn("销售订单", html)
         self.assertNotIn("操作记录", html)
-        # 允许看到：基本资料、检测结论、整备工单
-        self.assertIn("基本资料", html)
+        # 允许看到：基础信息、检测结论、整备工单；价格/采购/车主区块不可见
+        self.assertIn("1 · 基础信息", html)
         self.assertIn("检测记录", html)
         self.assertIn("整备工单", html)
+        self.assertNotIn("4 · 价格信息", html)
+        self.assertNotIn("5 · 评估采购信息", html)
+        self.assertNotIn("6 · 车主信息", html)
 
         # 无工单车辆：403
         r = self.client.get(f"/vehicles/{vid_other}")

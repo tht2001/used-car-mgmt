@@ -5,9 +5,27 @@
 
 <div class="card">
   <h2>创建收车单</h2>
-  <p class="form-hint">收购价超过 {{ "%.0f"|format(threshold) }} 元将自动生成高价审批。</p>
-  <form method="post" action="/acquisition" data-confirm="确认创建收车单？">
+  <p class="form-hint">收购价超过 {{ "%.0f"|format(threshold) }} 元将自动生成高价审批。带 <span class="req">*</span> 为必填项；价格类字段按万元录入、按元入库。</p>
+  <nav class="section-nav">
+    <a href="#sec1">1 基础信息</a>
+    <a href="#sec2">2 车辆档案</a>
+    <a href="#sec3">3 车况详情</a>
+    <a href="#sec4">4 价格信息</a>
+    <a href="#sec5">5 评估采购信息</a>
+    <a href="#sec6">6 车主信息</a>
+    <a href="#sec7">7 牌证信息</a>
+  </nav>
+  <form method="post" action="/acquisition" enctype="multipart/form-data" data-confirm="确认创建收车单？">
+
+    <h3 class="section-title" id="sec1">1 · 基础信息</h3>
     <div class="form-grid">
+      <div class="form-group">
+        <label>车辆类型</label>
+        <select name="vehicle_type">
+          <option value="二手车" selected>二手车</option>
+          <option value="新车">新车</option>
+        </select>
+      </div>
       <div class="form-group">
         <label>品牌 <span class="req">*</span></label>
         <input type="text" name="brand" required>
@@ -17,42 +35,436 @@
         <input type="text" name="model" required>
       </div>
       <div class="form-group">
-        <label>年份</label>
-        <input type="number" name="year">
+        <label>表显里程(万公里) <span class="req">*</span></label>
+        <input type="number" name="mileage" step="0.01" min="0" required>
       </div>
       <div class="form-group">
-        <label>里程(万km)</label>
-        <input type="number" name="mileage" step="0.1">
+        <label>首次上牌 <span class="req">*</span></label>
+        <input type="date" name="first_plate_date">
+        <small class="field-hint">未上牌留空，详情页显示“未上牌”。</small>
       </div>
       <div class="form-group">
-        <label>颜色</label>
-        <input type="text" name="color">
+        <label>车身颜色 <span class="req">*</span></label>
+        <input type="text" name="color" required>
       </div>
       <div class="form-group">
         <label>车牌号</label>
         <input type="text" name="plate">
       </div>
       <div class="form-group">
-        <label>VIN</label>
+        <label>VIN码</label>
         <input type="text" name="vin">
       </div>
       <div class="form-group">
-        <label>收购价(元) <span class="req">*</span></label>
-        <input type="number" name="buy_price" step="0.01" min="0" required>
+        <label>销售方式</label>
+        <select name="sales_mode">
+          <option value="批零兼售" selected>批零兼售</option>
+          <option value="零售">零售</option>
+          <option value="批发">批发</option>
+        </select>
       </div>
       <div class="form-group">
-        <label>客户姓名</label>
-        <input type="text" name="customer_name">
+        <label>评估师</label>
+        <select name="evaluator">
+          {% for s in staff %}
+          <option value="{{ s.name }}" {% if s.id == user.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="form-group">
-        <label>客户电话</label>
-        <input type="tel" name="customer_phone">
+        <label>门店 <span class="req">*</span></label>
+        <select name="store" required>
+          <option value="娇姐严选新能源" selected>娇姐严选新能源</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>车辆照片</label>
+        <input type="file" name="photos_vehicle" accept="image/*" multiple>
+        <small class="field-hint">可多选。照片仅保存在本系统内，演示环境重启后可能丢失，正式版存对象存储。</small>
       </div>
       <div class="form-group full">
         <label>备注</label>
         <textarea name="note"></textarea>
       </div>
     </div>
+
+    <h3 class="section-title" id="sec2">2 · 车辆档案</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>车辆编号</label>
+        <input type="text" name="vehicle_no">
+      </div>
+      <div class="form-group">
+        <label>库存状态</label>
+        <select name="stock_status">
+          <option value="在厅" selected>在厅</option>
+          <option value="仓库">仓库</option>
+          <option value="在途">在途</option>
+          <option value="已预订">已预订</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>库存区域</label>
+        <input type="text" name="stock_area" value="展厅">
+      </div>
+      <div class="form-group">
+        <label>库存位置</label>
+        <input type="text" name="stock_location">
+      </div>
+      <div class="form-group full">
+        <label>库存描述</label>
+        <textarea name="stock_desc" maxlength="1000"></textarea>
+      </div>
+      <div class="form-group">
+        <label>微店上架</label>
+        <select name="weidian_status">
+          <option value="未上架" selected>未上架</option>
+          <option value="已上架">已上架</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>使用性质</label>
+        <select name="use_type">
+          <option value="非营运" selected>非营运</option>
+          <option value="营运">营运</option>
+          <option value="营转非">营转非</option>
+          <option value="租赁">租赁</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>所有权归属</label>
+        <select name="ownership">
+          <option value="">请选择</option>
+          <option value="公户">公户</option>
+          <option value="私户">私户</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>发动机号</label>
+        <input type="text" name="engine_no">
+      </div>
+      <div class="form-group">
+        <label>出厂日期</label>
+        <input type="date" name="manufacture_date">
+      </div>
+      <div class="form-group">
+        <label>行驶证车辆类型</label>
+        <input type="text" name="license_vehicle_type">
+      </div>
+      <div class="form-group">
+        <label>行驶证品牌型号</label>
+        <input type="text" name="license_model">
+      </div>
+      <div class="form-group">
+        <label>登记证号</label>
+        <input type="text" name="registration_no">
+      </div>
+      <div class="form-group">
+        <label>转入地车辆管理所</label>
+        <input type="text" name="transfer_dmv">
+      </div>
+      <div class="form-group">
+        <label>内饰颜色</label>
+        <select name="interior_color">
+          <option value="">请选择</option>
+          <option value="黑色">黑色</option>
+          <option value="米色">米色</option>
+          <option value="棕色">棕色</option>
+          <option value="灰色">灰色</option>
+          <option value="白色">白色</option>
+          <option value="红色">红色</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>新车指导价(万元)</label>
+        <input type="number" name="new_car_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>购置税(万元)</label>
+        <input type="number" name="purchase_tax" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>加装费用(元)</label>
+        <input type="number" name="addon_cost" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>加装内容</label>
+        <input type="text" name="addon_content">
+      </div>
+      <div class="form-group">
+        <label>所在地</label>
+        <input type="text" name="location" value="云南 昆明">
+      </div>
+      <div class="form-group">
+        <label>库龄预警天数(天)</label>
+        <input type="number" name="stock_age_warn_days" min="0">
+      </div>
+      <div class="form-group">
+        <label>预定预警天数(天)</label>
+        <input type="number" name="booking_warn_days" min="0">
+      </div>
+      <div class="form-group">
+        <label>微店上架预警天数(天)</label>
+        <input type="number" name="weidian_warn_days" min="0">
+      </div>
+      <div class="form-group">
+        <label>车源上架预警天数(天)</label>
+        <input type="number" name="listing_warn_days" min="0">
+      </div>
+      <div class="form-group full">
+        <label>证件资料</label>
+        <input type="file" name="photos_cert" accept="image/*" multiple>
+        <small class="field-hint">行驶证、登记证等证件照片。仅管理员/老板/财务/销售/收购可见，整备角色不可见。</small>
+      </div>
+      <div class="form-group full">
+        <label>其他照片</label>
+        <input type="file" name="photos_other" accept="image/*" multiple>
+      </div>
+    </div>
+
+    <h3 class="section-title" id="sec3">3 · 车况详情</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>车况概述</label>
+        <select name="condition_summary">
+          <option value="">请选择</option>
+          <option value="车况优秀">车况优秀</option>
+          <option value="车况良好">车况良好</option>
+          <option value="车况一般">车况一般</option>
+          <option value="有小瑕疵">有小瑕疵</option>
+          <option value="有事故史">有事故史</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>车况(对内)</label>
+        <textarea name="condition_internal" maxlength="2000"></textarea>
+      </div>
+    </div>
+
+    <h3 class="section-title" id="sec4">4 · 价格信息</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>网络标价(万元)</label>
+        <input type="number" name="online_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>分期价(万元)</label>
+        <input type="number" name="installment_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>展厅标价(万元)</label>
+        <input type="number" name="showroom_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>销售底价(万元)</label>
+        <input type="number" name="floor_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>经理底价(万元)</label>
+        <input type="number" name="manager_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>批发价(万元)</label>
+        <input type="number" name="wholesale_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>展示批发价</label>
+        <select name="show_wholesale">
+          <option value="对外展示" selected>对外展示</option>
+          <option value="仅对内">仅对内</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>联盟批发价(万元)</label>
+        <input type="number" name="alliance_price" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>微店订金(元)</label>
+        <input type="number" name="weidian_deposit" step="0.01" min="0">
+      </div>
+    </div>
+
+    <h3 class="section-title" id="sec5">5 · 评估采购信息</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>采购类型</label>
+        <select name="purchase_type">
+          <option value="收购" selected>收购</option>
+          <option value="寄售">寄售</option>
+          <option value="置换">置换</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>采购价(万元) <span class="req">*</span></label>
+        <input type="number" name="buy_price_wan" step="0.01" min="0" required>
+      </div>
+      <div class="form-group">
+        <label>已付金额(元)</label>
+        <input type="number" name="paid_amount" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>收款公司</label>
+        <input type="text" name="payee_company">
+      </div>
+      <div class="form-group">
+        <label>采购日期</label>
+        <input type="date" name="purchase_date" value="{{ today }}">
+      </div>
+      <div class="form-group">
+        <label>采购过户方式</label>
+        <input type="text" name="transfer_method">
+      </div>
+      <div class="form-group">
+        <label>收车方式</label>
+        <select name="pickup_method">
+          <option value="">请选择</option>
+          <option value="店内收车">店内收车</option>
+          <option value="异地物流收车">异地物流收车</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>背户人姓名</label>
+        <input type="text" name="beihu_name">
+      </div>
+      <div class="form-group">
+        <label>背户人手机号</label>
+        <input type="tel" name="beihu_phone">
+      </div>
+      <div class="form-group">
+        <label>背户人身份证</label>
+        <input type="text" name="beihu_idcard">
+      </div>
+      <div class="form-group">
+        <label>企业名称</label>
+        <input type="text" name="beihu_company">
+      </div>
+      <div class="form-group">
+        <label>预计整备开始</label>
+        <input type="date" name="rework_plan_start">
+      </div>
+      <div class="form-group">
+        <label>预计整备完成</label>
+        <input type="date" name="rework_plan_end">
+      </div>
+      <div class="form-group">
+        <label>预计整备项</label>
+        <input type="text" name="rework_plan_items">
+      </div>
+      <div class="form-group">
+        <label>预计整备费用(元)</label>
+        <input type="number" name="rework_plan_cost" step="0.01" min="0">
+      </div>
+      <div class="form-group full">
+        <label>收购车况视频(仅对内)</label>
+        <input type="file" name="video_condition" accept="video/*">
+        <small class="field-hint">记录车辆整备前车况。仅非整备角色可见。</small>
+      </div>
+    </div>
+
+    <h3 class="section-title" id="sec6">6 · 车主信息</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>客户类型</label>
+        <select name="owner_type">
+          <option value="直客" selected>直客</option>
+          <option value="合作商">合作商</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>客户来源</label>
+        <input type="text" name="owner_source">
+      </div>
+      <div class="form-group">
+        <label>车主姓名</label>
+        <input type="text" name="customer_name">
+      </div>
+      <div class="form-group">
+        <label>手机号码</label>
+        <input type="tel" name="customer_phone">
+      </div>
+      <div class="form-group">
+        <label>收款人</label>
+        <input type="text" name="payee_name">
+      </div>
+      <div class="form-group">
+        <label>银行卡号</label>
+        <input type="text" name="bank_card">
+      </div>
+      <div class="form-group">
+        <label>开户行</label>
+        <input type="text" name="bank_name">
+      </div>
+      <div class="form-group">
+        <label>身份证号</label>
+        <input type="text" name="owner_idcard">
+      </div>
+      <div class="form-group">
+        <label>其他账户</label>
+        <input type="text" name="other_account">
+      </div>
+      <div class="form-group">
+        <label>地址</label>
+        <input type="text" name="owner_address">
+      </div>
+    </div>
+
+    <h3 class="section-title" id="sec7">7 · 牌证信息</h3>
+    <div class="form-grid">
+      {% for field, label in [
+        ('cert_registration', '登记证'),
+        ('cert_driving', '行驶证'),
+        ('cert_owner_idcard', '原车主身份证'),
+        ('cert_transfer_video', '过户视频'),
+        ('cert_invoice', '进项发票'),
+        ('cert_conformity', '一致性证书'),
+        ('cert_env', '环保清单'),
+        ('cert_qualification', '合格证'),
+        ('cert_plate_photo', '车辆牌照'),
+        ('insurance_compulsory', '交强险'),
+        ('insurance_commercial', '商业险'),
+      ] %}
+      <div class="form-group">
+        <label>{{ label }}</label>
+        <select name="{{ field }}">
+          <option value="">请选择</option>
+          <option value="有">有</option>
+          <option value="无">无</option>
+        </select>
+      </div>
+      {% endfor %}
+      <div class="form-group">
+        <label>过户次数(次)</label>
+        <input type="number" name="transfer_count" min="0">
+      </div>
+      <div class="form-group">
+        <label>钥匙数量(把)</label>
+        <input type="number" name="key_count" min="0">
+      </div>
+      <div class="form-group">
+        <label>交强险到期</label>
+        <input type="date" name="insurance_compulsory_expiry">
+      </div>
+      <div class="form-group">
+        <label>商业险到期</label>
+        <input type="date" name="insurance_commercial_expiry">
+      </div>
+      <div class="form-group">
+        <label>商业险金额(元)</label>
+        <input type="number" name="insurance_commercial_amount" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>年检到期日</label>
+        <input type="date" name="annual_inspection_expiry">
+      </div>
+      <div class="form-group full">
+        <label>备注</label>
+        <textarea name="cert_note" maxlength="1000"></textarea>
+      </div>
+    </div>
+
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">创建收车单</button>
     </div>
