@@ -150,11 +150,116 @@ SCHEMA = [
         value TEXT
     )
     """,
+    # 车辆附件：车辆照片/证件资料/其他照片/收购车况视频（kind 区分）
+    # 文件存 static/uploads/<vehicle_id>/，生产环境迁对象存储（OSS）
+    """
+    CREATE TABLE IF NOT EXISTS vehicle_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vehicle_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL,
+        original_name TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now','localtime'))
+    )
+    """,
+]
+
+# 车辆扩展字段（大风车 APP「新建车辆」7 大类栏目，2026-11-01 客户要求补齐）。
+# 仅新增列，全部可空，旧库/旧数据不受影响；init_db() 幂等补列。
+# 金额单位：库内统一用“元”，仅“万元”标注的字段在表单层按万元录入、入库时换算。
+VEHICLE_EXTRA_COLUMNS = [
+    # 1 基础信息
+    ("vehicle_type", "TEXT"),        # 车辆类型：二手车/新车
+    ("first_plate_date", "TEXT"),    # 首次上牌日期（空=未上牌）
+    ("sales_mode", "TEXT"),          # 销售方式：批零兼售/零售/批发
+    ("evaluator", "TEXT"),           # 评估师姓名
+    ("store", "TEXT"),               # 门店
+    # 2 车辆档案
+    ("vehicle_no", "TEXT"),          # 车辆编号
+    ("stock_status", "TEXT"),        # 库存状态：在厅/仓库/在途/已预订
+    ("stock_area", "TEXT"),          # 库存区域
+    ("stock_location", "TEXT"),      # 库存位置
+    ("stock_desc", "TEXT"),          # 库存描述
+    ("weidian_status", "TEXT"),      # 微店上架：未上架/已上架（仅存状态，不联动微店）
+    ("use_type", "TEXT"),            # 使用性质：非营运/营运/营转非/租赁
+    ("ownership", "TEXT"),           # 所有权归属：公户/私户
+    ("engine_no", "TEXT"),           # 发动机号
+    ("manufacture_date", "TEXT"),    # 出厂日期
+    ("license_vehicle_type", "TEXT"),  # 行驶证车辆类型
+    ("license_model", "TEXT"),       # 行驶证品牌型号
+    ("registration_no", "TEXT"),     # 登记证号
+    ("transfer_dmv", "TEXT"),        # 转入地车辆管理所
+    ("interior_color", "TEXT"),      # 内饰颜色
+    ("new_car_price", "REAL"),       # 新车指导价（万元）
+    ("purchase_tax", "REAL"),        # 购置税（万元）
+    ("addon_cost", "REAL"),          # 加装费用（元）
+    ("addon_content", "TEXT"),       # 加装内容
+    ("location", "TEXT"),            # 所在地
+    ("stock_age_warn_days", "INTEGER"),  # 库龄预警天数
+    ("booking_warn_days", "INTEGER"),    # 预定预警天数
+    ("weidian_warn_days", "INTEGER"),    # 微店上架预警天数（仅存值）
+    ("listing_warn_days", "INTEGER"),    # 车源上架预警天数
+    # 3 车况详情
+    ("condition_summary", "TEXT"),   # 车况概述
+    ("condition_internal", "TEXT"),  # 车况（对内）
+    # 4 价格信息（万元字段在表单层按万元录入，入库统一为元）
+    ("online_price", "REAL"),        # 网络标价
+    ("installment_price", "REAL"),   # 分期价
+    ("showroom_price", "REAL"),      # 展厅标价
+    ("floor_price", "REAL"),         # 销售底价
+    ("manager_price", "REAL"),       # 经理底价
+    ("wholesale_price", "REAL"),     # 批发价
+    ("show_wholesale", "TEXT"),      # 展示批发价：对外展示/仅对内
+    ("alliance_price", "REAL"),      # 联盟批发价
+    ("weidian_deposit", "REAL"),     # 微店订金（元）
+    # 5 评估采购信息
+    ("purchase_type", "TEXT"),       # 采购类型：收购/寄售/置换/其他
+    ("paid_amount", "REAL"),         # 已付金额（元）
+    ("payee_company", "TEXT"),       # 收款公司
+    ("purchase_date", "TEXT"),       # 采购日期
+    ("transfer_method", "TEXT"),     # 采购过户方式
+    ("pickup_method", "TEXT"),       # 收车方式：店内收车/异地物流收车
+    ("beihu_name", "TEXT"),          # 背户人姓名（敏感，仅非受限角色可见）
+    ("beihu_phone", "TEXT"),         # 背户人手机号
+    ("beihu_idcard", "TEXT"),        # 背户人身份证
+    ("beihu_company", "TEXT"),       # 企业名称
+    ("rework_plan_start", "TEXT"),   # 预计整备开始
+    ("rework_plan_end", "TEXT"),     # 预计整备完成
+    ("rework_plan_items", "TEXT"),   # 预计整备项
+    ("rework_plan_cost", "REAL"),    # 预计整备费用（元）
+    # 6 车主信息（敏感，仅非受限角色可见；姓名/电话复用既有 customer_* 列）
+    ("owner_type", "TEXT"),          # 客户类型：直客/合作商
+    ("owner_source", "TEXT"),        # 客户来源
+    ("payee_name", "TEXT"),          # 收款人
+    ("bank_card", "TEXT"),           # 银行卡号
+    ("bank_name", "TEXT"),           # 开户行
+    ("owner_idcard", "TEXT"),        # 身份证号
+    ("other_account", "TEXT"),       # 其他账户
+    ("owner_address", "TEXT"),       # 地址
+    # 7 牌证信息（有/无）
+    ("cert_registration", "TEXT"),   # 登记证
+    ("cert_driving", "TEXT"),        # 行驶证
+    ("cert_owner_idcard", "TEXT"),   # 原车主身份证
+    ("cert_transfer_video", "TEXT"),  # 过户视频
+    ("cert_invoice", "TEXT"),        # 进项发票
+    ("cert_conformity", "TEXT"),     # 一致性证书
+    ("cert_env", "TEXT"),            # 环保清单
+    ("cert_qualification", "TEXT"),  # 合格证
+    ("cert_plate_photo", "TEXT"),    # 车辆牌照
+    ("transfer_count", "INTEGER"),   # 过户次数
+    ("key_count", "INTEGER"),        # 钥匙数量
+    ("insurance_compulsory", "TEXT"),  # 交强险：有/无
+    ("insurance_compulsory_expiry", "TEXT"),  # 交强险到期
+    ("insurance_commercial", "TEXT"),  # 商业险：有/无
+    ("insurance_commercial_expiry", "TEXT"),  # 商业险到期
+    ("insurance_commercial_amount", "REAL"),  # 商业险金额（元）
+    ("annual_inspection_expiry", "TEXT"),  # 年检到期日
+    ("cert_note", "TEXT"),           # 备注
 ]
 
 # role: admin/boss/finance/sales/buyer/rework
 DEFAULT_SETTINGS = [
-    ("company_name", "诚信二手车"),
+    ("company_name", "娇姐严选新能源"),
     ("sales_commission_rate", "0.05"),
     ("buy_high_price_threshold", "150000"),
     ("stock_standard",
@@ -173,12 +278,13 @@ def get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """建全部表（不存在才建），写入默认 settings（已存在则跳过）。"""
+    """建全部表（不存在才建），写入默认 settings（已存在则跳过），补齐车辆扩展列。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = get_conn()
     try:
         for ddl in SCHEMA:
             conn.execute(ddl)
+        _migrate_vehicle_columns(conn)
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             DEFAULT_SETTINGS,
@@ -186,6 +292,17 @@ def init_db() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_vehicle_columns(conn: sqlite3.Connection) -> None:
+    """幂等补列：vehicles 表缺失的扩展字段逐一 ALTER TABLE 增加。
+
+    旧库直接升级，不动已有数据；新库建表后本函数无操作。
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(vehicles)")}
+    for name, ddl in VEHICLE_EXTRA_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE vehicles ADD COLUMN {name} {ddl}")
 
 
 def query(sql: str, args: tuple = ()) -> list[dict]:

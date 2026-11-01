@@ -10,15 +10,24 @@ import io
 import os
 import secrets
 import sys
+import uuid
+from datetime import date
 from functools import wraps
 
 from flask import (Flask, Response, abort, flash, g, redirect, render_template,
                    request, send_file, session)
 from werkzeug.security import check_password_hash, generate_password_hash
 
+# 车辆附件上传：演示环境落本地 static/uploads/，正式环境迁对象存储（OSS）。
+# 演示站磁盘是临时的，附件随重启丢失；正式版上线前接入 OSS（见任务书 T15）。
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "uploads")
+ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_VIDEO_EXTS = {"mp4", "mov", "avi", "webm", "m4v"}
+
 import db
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 附件单次请求上限 32MB
 
 # 运行环境：development / demo / testing / production，默认 development
 APP_ENV = os.environ.get("APP_ENV", "development")
@@ -105,6 +114,63 @@ def role_required(*roles):
         return wrapper
 
     return deco
+
+
+def _form_text(name):
+    """表单文本字段：去空格，空则返回 ''（入库存空串，与既有列保持一致）。"""
+    return request.form.get(name, "").strip()
+
+
+def _form_float(name):
+    """表单数字字段：空或非法返回 None。"""
+    raw = request.form.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _form_int(name):
+    value = _form_float(name)
+    return int(value) if value is not None else None
+
+
+def _form_wan(name):
+    """表单“万元”字段：按万元录入，入库换算为元；空返回 None。"""
+    value = _form_float(name)
+    return value * 10000 if value is not None else None
+
+
+def _save_vehicle_files(vid):
+    """保存收车单上传的附件（车辆照片/证件资料/其他照片/收购车况视频）。
+
+    文件名用 uuid 重命名后落盘，原始文件名只存库里做展示；类型白名单校验，
+    不在白名单的文件直接跳过。失败不阻断建单（附件缺失可在详情页看到无文件）。
+    """
+    specs = [
+        ("photos_vehicle", "vehicle", ALLOWED_IMAGE_EXTS),
+        ("photos_cert", "cert", ALLOWED_IMAGE_EXTS),
+        ("photos_other", "other", ALLOWED_IMAGE_EXTS),
+        ("video_condition", "video", ALLOWED_VIDEO_EXTS),
+    ]
+    for field, kind, allowed in specs:
+        for f in request.files.getlist(field):
+            if not f or not f.filename:
+                continue
+            ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+            if ext not in allowed:
+                continue
+            subdir = os.path.join(UPLOAD_DIR, str(vid))
+            os.makedirs(subdir, exist_ok=True)
+            fname = f"{uuid.uuid4().hex}.{ext}"
+            f.save(os.path.join(subdir, fname))
+            db.execute(
+                "INSERT INTO vehicle_files(vehicle_id, kind, path, original_name)"
+                " VALUES(?, ?, ?, ?)",
+                (vid, kind, f"uploads/{vid}/{fname}", f.filename[:100]),
+            )
 
 
 def log(action, target="", detail=""):
@@ -361,6 +427,17 @@ def vehicle_detail(vid):
     if not rows:
         abort(404)
     v = rows[0]
+    # 附件：受限角色（整备）仅可见车辆照片，证件资料与收购车况视频不传给模板
+    if restricted:
+        files = db.query(
+            "SELECT * FROM vehicle_files WHERE vehicle_id=? AND kind='vehicle'"
+            " ORDER BY id",
+            (vid,),
+        )
+    else:
+        files = db.query(
+            "SELECT * FROM vehicle_files WHERE vehicle_id=? ORDER BY id", (vid,)
+        )
     inspections = db.query(
         "SELECT * FROM inspections WHERE vehicle_id=? ORDER BY id DESC", (vid,)
     )
@@ -418,6 +495,7 @@ def vehicle_detail(vid):
         "vehicle_detail.html", active="vehicles", vehicle=v, inspections=inspections,
         rework_orders=orders, ledger=ledger, sales_orders=sales_orders,
         logs=logs, timeline=timeline, threshold=threshold, restricted=restricted,
+        files=files,
     )
 
 
@@ -497,25 +575,122 @@ def stock_reject(vid):
 def acquisition():
     threshold = float(get_setting("buy_high_price_threshold", "150000") or 150000)
     if request.method == "POST":
-        brand = request.form.get("brand", "").strip()
-        model = request.form.get("model", "").strip()
-        buy_price = float(request.form.get("buy_price", "") or 0)
-        if not brand or not model or buy_price <= 0:
-            flash("品牌、型号、收购价为必填项", "error")
+        # 大风车 APP「新建车辆」7 大类栏目（2026-11-01 客户要求）。
+        # 金额口径：库内统一为“元”；表单中标“万元”的字段按万元录入、此处换算。
+        buy_price = _form_wan("buy_price_wan") or 0
+        vals = {
+            # 1 基础信息（既有列：vin/brand/model/mileage/color/plate）
+            "vin": _form_text("vin"),
+            "brand": _form_text("brand"),
+            "model": _form_text("model"),
+            "mileage": _form_float("mileage"),
+            "color": _form_text("color"),
+            "plate": _form_text("plate"),
+            "vehicle_type": _form_text("vehicle_type"),
+            "first_plate_date": _form_text("first_plate_date"),
+            "sales_mode": _form_text("sales_mode"),
+            "evaluator": _form_text("evaluator"),
+            "store": _form_text("store"),
+            "note": _form_text("note"),
+            # 2 车辆档案
+            "vehicle_no": _form_text("vehicle_no"),
+            "stock_status": _form_text("stock_status"),
+            "stock_area": _form_text("stock_area"),
+            "stock_location": _form_text("stock_location"),
+            "stock_desc": _form_text("stock_desc"),
+            "weidian_status": _form_text("weidian_status"),
+            "use_type": _form_text("use_type"),
+            "ownership": _form_text("ownership"),
+            "engine_no": _form_text("engine_no"),
+            "manufacture_date": _form_text("manufacture_date"),
+            "license_vehicle_type": _form_text("license_vehicle_type"),
+            "license_model": _form_text("license_model"),
+            "registration_no": _form_text("registration_no"),
+            "transfer_dmv": _form_text("transfer_dmv"),
+            "interior_color": _form_text("interior_color"),
+            "new_car_price": _form_wan("new_car_price"),
+            "purchase_tax": _form_wan("purchase_tax"),
+            "addon_cost": _form_float("addon_cost"),
+            "addon_content": _form_text("addon_content"),
+            "location": _form_text("location"),
+            "stock_age_warn_days": _form_int("stock_age_warn_days"),
+            "booking_warn_days": _form_int("booking_warn_days"),
+            "weidian_warn_days": _form_int("weidian_warn_days"),
+            "listing_warn_days": _form_int("listing_warn_days"),
+            # 3 车况详情
+            "condition_summary": _form_text("condition_summary"),
+            "condition_internal": _form_text("condition_internal"),
+            # 4 价格信息（万元字段已换算为元）
+            "online_price": _form_wan("online_price"),
+            "installment_price": _form_wan("installment_price"),
+            "showroom_price": _form_wan("showroom_price"),
+            "floor_price": _form_wan("floor_price"),
+            "manager_price": _form_wan("manager_price"),
+            "wholesale_price": _form_wan("wholesale_price"),
+            "show_wholesale": _form_text("show_wholesale"),
+            "alliance_price": _form_wan("alliance_price"),
+            "weidian_deposit": _form_float("weidian_deposit"),
+            # 5 评估采购信息
+            "buy_price": buy_price,
+            "purchase_type": _form_text("purchase_type"),
+            "paid_amount": _form_float("paid_amount"),
+            "payee_company": _form_text("payee_company"),
+            "purchase_date": _form_text("purchase_date"),
+            "transfer_method": _form_text("transfer_method"),
+            "pickup_method": _form_text("pickup_method"),
+            "beihu_name": _form_text("beihu_name"),
+            "beihu_phone": _form_text("beihu_phone"),
+            "beihu_idcard": _form_text("beihu_idcard"),
+            "beihu_company": _form_text("beihu_company"),
+            "rework_plan_start": _form_text("rework_plan_start"),
+            "rework_plan_end": _form_text("rework_plan_end"),
+            "rework_plan_items": _form_text("rework_plan_items"),
+            "rework_plan_cost": _form_float("rework_plan_cost"),
+            # 6 车主信息（姓名/电话复用既有 customer_* 列）
+            "owner_type": _form_text("owner_type"),
+            "owner_source": _form_text("owner_source"),
+            "customer_name": _form_text("customer_name"),
+            "customer_phone": _form_text("customer_phone"),
+            "payee_name": _form_text("payee_name"),
+            "bank_card": _form_text("bank_card"),
+            "bank_name": _form_text("bank_name"),
+            "owner_idcard": _form_text("owner_idcard"),
+            "other_account": _form_text("other_account"),
+            "owner_address": _form_text("owner_address"),
+            # 7 牌证信息
+            "cert_registration": _form_text("cert_registration"),
+            "cert_driving": _form_text("cert_driving"),
+            "cert_owner_idcard": _form_text("cert_owner_idcard"),
+            "cert_transfer_video": _form_text("cert_transfer_video"),
+            "cert_invoice": _form_text("cert_invoice"),
+            "cert_conformity": _form_text("cert_conformity"),
+            "cert_env": _form_text("cert_env"),
+            "cert_qualification": _form_text("cert_qualification"),
+            "cert_plate_photo": _form_text("cert_plate_photo"),
+            "transfer_count": _form_int("transfer_count"),
+            "key_count": _form_int("key_count"),
+            "insurance_compulsory": _form_text("insurance_compulsory"),
+            "insurance_compulsory_expiry": _form_text("insurance_compulsory_expiry"),
+            "insurance_commercial": _form_text("insurance_commercial"),
+            "insurance_commercial_expiry": _form_text("insurance_commercial_expiry"),
+            "insurance_commercial_amount": _form_float("insurance_commercial_amount"),
+            "annual_inspection_expiry": _form_text("annual_inspection_expiry"),
+            "cert_note": _form_text("cert_note"),
+            "status": "待检测",
+            "buyer_id": g.user["id"],
+        }
+        brand, model = vals["brand"], vals["model"]
+        if not brand or not model or not vals["mileage"] or not vals["color"] \
+                or buy_price <= 0 or not vals["store"]:
+            flash("品牌、车型、表显里程、车身颜色、采购价、门店为必填项", "error")
             return redirect("/acquisition")
+        cols = ", ".join(vals.keys())
+        placeholders = ", ".join("?" * len(vals))
         vid = db.execute(
-            """INSERT INTO vehicles(vin,brand,model,year,mileage,color,plate,buy_price,
-                                    status,buyer_id,customer_name,customer_phone,note)
-               VALUES(?,?,?,?,?,?,?,?, '待检测',?,?,?,?)""",
-            (request.form.get("vin", "").strip(), brand, model,
-             request.form.get("year", "").strip() or None,
-             request.form.get("mileage", "").strip() or None,
-             request.form.get("color", "").strip(),
-             request.form.get("plate", "").strip(), buy_price, g.user["id"],
-             request.form.get("customer_name", "").strip(),
-             request.form.get("customer_phone", "").strip(),
-             request.form.get("note", "").strip()),
+            f"INSERT INTO vehicles({cols}) VALUES({placeholders})",
+            tuple(vals.values()),
         )
+        _save_vehicle_files(vid)
         log("收车入库", f"车辆#{vid}", f"{brand}{model}，收购价{buy_price:.0f}元")
         if buy_price > threshold:
             db.execute(
@@ -535,8 +710,10 @@ def acquisition():
            FROM vehicles v LEFT JOIN users u ON u.id=v.buyer_id
            ORDER BY v.id DESC LIMIT 50"""
     )
+    staff = db.query("SELECT id, name FROM users WHERE active=1 ORDER BY id")
     return render_template(
         "acquisition.html", active="acquisition", vehicles=recent, threshold=threshold,
+        staff=staff, today=date.today().isoformat(),
     )
 
 # ---------------------------------------------------------------- 整备
