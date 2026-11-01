@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}库存总账 - 车管MVP{% endblock %}
+{% block content %}
+<h1>库存总账</h1>
+<p class="form-hint">口径与客户管理表单「库存表」一致：车辆成本 = 打款价 + 入库前费用 + 入库后费用；利润率与周期降价按成本/库存天数分档；库存时间按采购日期起算（缺失时按建单日期）；合计成交价 = 合同销售价 + 贷款返点 + GPS 返点 + 保险返点 + 质保利润 + 其他。</p>
+
+<div class="card">
+  <form method="get" action="/ledger" class="form-grid">
+    <div class="form-group">
+      <label>状态</label>
+      <select name="status">
+        <option value="">全部</option>
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>品牌</label>
+      <select name="brand">
+        <option value="">全部</option>
+        {% for b in brands %}
+        <option value="{{ b }}" {% if f_brand == b %}selected{% endif %}>{{ b }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>关键字</label>
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="品牌/车型/车牌/VIN">
+    </div>
+    <div class="form-group">
+      <label>&nbsp;</label>
+      <div><button type="submit" class="btn btn-primary">筛选</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>车架号(后6位)</th><th>品牌型号</th>
+        <th class="num">打款价</th><th class="num">入库前费用</th><th class="num">入库后费用</th><th class="num">车辆成本</th>
+        <th class="num">利润率</th><th class="num">周期降价</th><th class="num">利润值</th>
+        <th class="num">水牌价幅度</th><th class="num">批发底价标准</th><th class="num">销售底价标准</th>
+        <th class="num">当期批发价</th><th class="num">销售底价</th><th class="num">展厅标价</th><th class="num">网络标价</th>
+        <th class="num">合同销售价</th><th class="num">合计成交价</th>
+        <th>收购人</th><th>收购来源</th><th>卖车人</th><th>销售渠道</th>
+        <th>入库时间</th><th class="num">库存时间(天)</th><th>出售时间</th><th class="num">周转天数</th><th>车辆状态</th><th>备注</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in rows %}
+      <tr>
+        <td>{{ v.id }}</td>
+        <td>{{ v.vin6 }}</td>
+        <td><a href="/vehicles/{{ v.id }}">{{ v.brand }} {{ v.model }}</a></td>
+        <td class="num">{{ "%.0f"|format(v.pricing.buy_price) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.pre_cost) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.post_cost) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.cost) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.profit_rate * 100) }}%</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.cycle_discount * 100) }}%</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.profit_value) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.showcard) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.wholesale_std) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.floor_std) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.wholesale_price) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.floor_price) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.showroom_price) }}</td>
+        <td class="num">{{ "%.0f"|format(v.pricing.online_price) }}</td>
+        <td class="num">{{ "%.0f"|format(v.sale_price) if v.sale_price is not none else '-' }}</td>
+        <td class="num">{{ "%.0f"|format(v.total_deal) if v.total_deal is not none else '-' }}</td>
+        <td>{{ v.buyer_name or '-' }}</td>
+        <td>{{ v.purchase_source or '-' }}</td>
+        <td>{{ v.sales_name or '-' }}</td>
+        <td>{{ v.sale_channel or '-' }}</td>
+        <td>{{ v.stock_in_date or '-' }}</td>
+        <td class="num">{{ v.days_in_stock }}</td>
+        <td>{{ v.sold_on or '-' }}</td>
+        <td class="num">{{ v.turnover_days if v.turnover_days is not none else '-' }}</td>
+        <td><span class="badge badge-{{ v.status }}">{{ v.status }}</span></td>
+        <td>{{ v.note or '-' }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total-row">
+        <td colspan="3">合计（当前筛选）</td>
+        <td class="num">{{ "%.0f"|format(totals.buy_price) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.pre_cost) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.post_cost) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.cost) }}</td>
+        <td></td><td></td>
+        <td class="num">{{ "%.0f"|format(totals.profit_value) }}</td>
+        <td></td><td></td><td></td>
+        <td class="num">{{ "%.0f"|format(totals.wholesale_price) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.floor_price) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.showroom_price) }}</td>
+        <td class="num">{{ "%.0f"|format(totals.online_price) }}</td>
+        <td></td>
+        <td class="num">{{ "%.0f"|format(totals.deal) }}</td>
+        <td colspan="10"></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

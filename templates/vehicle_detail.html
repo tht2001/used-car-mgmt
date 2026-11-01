@@ -119,6 +119,7 @@
   {% endif %}
   <dl class="dl-grid">
     {{ f_txt('采购类型', vehicle.purchase_type) }}
+    {{ f_txt('收购来源', vehicle.purchase_source) }}
     {{ f_yuan('采购价', vehicle.buy_price) }}
     {{ f_yuan('已付金额', vehicle.paid_amount) }}
     {{ f_txt('收款公司', vehicle.payee_company) }}
@@ -134,6 +135,7 @@
     {{ f_txt('预计整备项', vehicle.rework_plan_items) }}
     {{ f_yuan('预计整备费用', vehicle.rework_plan_cost) }}
     {{ f_yuan('成交价', vehicle.sold_price) }}
+    {{ f_yuan('合计成交价', vehicle.total_deal) }}
   </dl>
 </div>
 
@@ -288,14 +290,39 @@
 
 {% if not restricted %}
 <div class="card">
+  <h2>定价链（按客户管理表单公式自动计算）</h2>
+  <dl class="dl-grid">
+    {{ f_yuan('打款价', vehicle.pricing.buy_price) }}
+    {{ f_yuan('入库前费用', vehicle.pricing.pre_cost) }}
+    {{ f_yuan('入库后费用', vehicle.pricing.post_cost) }}
+    {{ f_yuan('车辆成本', vehicle.pricing.cost) }}
+    <dt>利润率</dt><dd>{{ "%.0f"|format(vehicle.pricing.profit_rate * 100) }}%</dd>
+    <dt>周期降价（库存 {{ vehicle.days_in_stock }} 天）</dt><dd>{{ "%.0f"|format(vehicle.pricing.cycle_discount * 100) }}%</dd>
+    {{ f_yuan('利润值', vehicle.pricing.profit_value) }}
+    {{ f_yuan('水牌价幅度', vehicle.pricing.showcard) }}
+    {{ f_yuan('批发底价标准', vehicle.pricing.wholesale_std) }}
+    {{ f_yuan('销售底价标准', vehicle.pricing.floor_std) }}
+    {{ f_yuan('当期批发价', vehicle.pricing.wholesale_price) }}
+    {{ f_yuan('销售底价', vehicle.pricing.floor_price) }}
+    {{ f_yuan('展厅标价', vehicle.pricing.showroom_price) }}
+    {{ f_yuan('网络标价', vehicle.pricing.online_price) }}
+    {{ f_yuan('合计成交价', vehicle.total_deal) }}
+  </dl>
+  <p class="form-hint">库存时间按采购日期起算（{{ vehicle.stock_in_date or '未记录' }}），缺失时按建单日期；入库前/后费用来自费用台账归属；销售底价标准 30–35 万档原文为 19000，待客户确认。</p>
+</div>
+{% endif %}
+
+{% if not restricted %}
+<div class="card">
   <h2>成本明细</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>类别</th><th class="num">金额(元)</th><th>备注</th><th>登记人</th><th>时间</th></tr></thead>
+    <thead><tr><th>归属</th><th>类别</th><th class="num">金额(元)</th><th>备注</th><th>登记人</th><th>时间</th></tr></thead>
     <tbody>
-      <tr><td>收购价</td><td class="num">{{ "%.0f"|format(vehicle.buy_price) }}</td><td>-</td><td>-</td><td>-</td></tr>
+      <tr><td>收购</td><td>收购价</td><td class="num">{{ "%.0f"|format(vehicle.buy_price) }}</td><td>-</td><td>-</td><td>-</td></tr>
       {% for l in ledger %}
       <tr>
+        <td>{{ l.phase or '未分类' }}</td>
         <td>{{ l.category }}</td>
         <td class="num">{{ "%.0f"|format(l.amount) }}</td>
         <td>{{ l.note or '-' }}</td>
@@ -304,13 +331,48 @@
       </tr>
       {% endfor %}
       <tr class="total-row">
-        <td>总成本</td>
+        <td colspan="2">总成本</td>
         <td class="num">{{ "%.0f"|format(vehicle.total_cost or 0) }}</td>
         <td colspan="3"></td>
       </tr>
     </tbody>
   </table>
   </div>
+  {% if can_add_cost %}
+  <form method="post" action="/vehicles/{{ vehicle.id }}/costs" class="form-grid" style="margin-top:12px">
+    <div class="form-group">
+      <label>费用归属 <span class="req">*</span></label>
+      <select name="phase" required>
+        <option value="入库前">入库前</option>
+        <option value="入库后">入库后</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>类别 <span class="req">*</span></label>
+      <select name="category" required>
+        <optgroup label="入库前">
+          {% for c in pre_cost_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </optgroup>
+        <optgroup label="入库后">
+          {% for c in post_cost_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>金额(元) <span class="req">*</span></label>
+      <input type="number" name="amount" step="0.01" min="0" required>
+    </div>
+    <div class="form-group">
+      <label>备注</label>
+      <input type="text" name="note">
+    </div>
+    <div class="form-group">
+      <label>&nbsp;</label>
+      <div><button type="submit" class="btn btn-primary">登记费用</button></div>
+    </div>
+  </form>
+  <p class="form-hint">类别与归属须对应（以费用明细表类目为准）；登记后只增不改，计入定价链。</p>
+  {% endif %}
 </div>
 
 {% endif %}
@@ -320,7 +382,7 @@
   <h2>销售订单</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>订单ID</th><th>客户</th><th>电话</th><th class="num">价格(元)</th><th class="num">优惠(元)</th><th>金融方案</th><th>过户</th><th>交付</th><th>合同号</th><th>销售员</th><th>创建时间</th></tr></thead>
+    <thead><tr><th>订单ID</th><th>客户</th><th>电话</th><th class="num">价格(元)</th><th class="num">优惠(元)</th><th class="num">返点合计(元)</th><th class="num">合计成交价(元)</th><th>金融方案</th><th>销售渠道</th><th>过户</th><th>交付</th><th>合同号</th><th>销售员</th><th>创建时间</th></tr></thead>
     <tbody>
       {% for o in sales_orders %}
       <tr>
@@ -329,7 +391,10 @@
         <td>{{ o.phone }}</td>
         <td class="num">{{ "%.0f"|format(o.price) }}</td>
         <td class="num">{{ "%.0f"|format(o.discount or 0) }}</td>
+        <td class="num">{{ "%.0f"|format((o.loan_rebate or 0) + (o.gps_rebate or 0) + (o.insurance_rebate or 0) + (o.warranty_profit or 0) + (o.other_income or 0)) }}</td>
+        <td class="num">{{ "%.0f"|format(o.price + (o.loan_rebate or 0) + (o.gps_rebate or 0) + (o.insurance_rebate or 0) + (o.warranty_profit or 0) + (o.other_income or 0)) }}</td>
         <td>{{ o.finance_plan or '-' }}</td>
+        <td>{{ o.sale_channel or '-' }}</td>
         <td>{{ o.transfer_status }}</td>
         <td>{{ o.delivery_status }}</td>
         <td>{{ o.contract_no or '-' }}</td>

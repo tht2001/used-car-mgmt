@@ -48,6 +48,8 @@ def make_vehicle(buy_price=80000, status="待检测", buyer_id=None):
 
 class BatchABase(unittest.TestCase):
     def setUp(self):
+        # 多测试模块合跑时 db.DB_PATH 是全局共享的；每个用例开始前指回本模块临时库
+        db.DB_PATH = os.path.join(TMPDIR, "test.db")
         p = db.DB_PATH
         self.assertTrue(
             p.startswith(TMPDIR),
