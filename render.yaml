@@ -5,10 +5,18 @@ services:
     name: used-car-mgmt
     runtime: python
     buildCommand: pip install -r requirements.txt
-    # 演示初始化是显式命令：建表（幂等）-> 库为空时灌演示数据 -> 启动应用
+    # 启动初始化是显式命令：建表（幂等）-> 按环境变量建首个管理员 -> 启动应用。
+    # 默认不灌演示数据（仅 SEED_DEMO=1 时灌入）。服务若为手动创建、不同步
+    # 本文件，请在 Render 后台把 Start Command 改成与下面一致。
     startCommand: python scripts/init_db.py && python scripts/init_demo.py && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
     envVars:
       - key: APP_ENV
         value: demo
       - key: SECRET_KEY
         generateValue: true
+      # 客户交接账号：在 Render 后台设置后重新部署，启动时自动创建首个
+      # 管理员（sync: false 表示取值以后台设置为准，不由本文件同步）。
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

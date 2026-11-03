@@ -1,12 +1,15 @@
 """演示数据初始化脚本（显式命令，非破坏性默认行为）。
 
-- load_demo_data()：建表（幂等）并在 users 表为空时插入演示数据；绝不删库。
+- 默认空白：直接运行只建表（幂等）+ 按环境变量建首个管理员，不灌演示数据。
+- load_demo_data()：建表（幂等）并在 users 表为空时插入演示数据；绝不删库；
+  仅在 SEED_DEMO=1 时由 CLI/启动脚本调用。
 - CLI 破坏性重置（删除重建演示库）必须同时满足：
   APP_ENV ∈ {development, demo, testing} 且带 --confirm-reset 参数。
 - APP_ENV=production 时任何参数都拒绝执行（非零退出），生产库永不 seed。
 
 运行方式（在 car-mgmt 目录下）：
-  python seed.py                  # 建表 + 库为空时灌演示数据（安全，可重复跑）
+  python seed.py                  # 建表 + 建管理员（ADMIN_* 环境变量），不灌数
+  SEED_DEMO=1 python seed.py      # 建表 + 库为空时灌演示数据（安全，可重复跑）
   python seed.py --confirm-reset   # 删除重建演示库（仅开发/演示/测试环境）
 """
 
@@ -14,8 +17,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
 
 import db
+from create_admin import ensure_admin_from_env
 from werkzeug.security import generate_password_hash
 
 ALLOWED_RESET_ENVS = {"development", "demo", "testing"}
@@ -250,8 +255,20 @@ def main(argv: list[str]) -> int:
         print(f"已重建空库：{db.DB_PATH}")
         load_demo_data()
         return 0
-    # 默认：安全模式——建表（幂等）+ 库为空时灌演示数据，不删库
-    load_demo_data()
+    # 默认：空白模式——建表（幂等）+ 按环境变量建管理员，不删库、不灌数；
+    # 演示数据仅 SEED_DEMO=1 时灌入。
+    db.init_db()
+    if os.environ.get("SEED_DEMO") == "1":
+        load_demo_data()
+    else:
+        print("跳过演示数据：默认交付空白系统（本地演示请设 SEED_DEMO=1）。")
+    status = ensure_admin_from_env()
+    if status == "skipped":
+        print("未设置 ADMIN_USERNAME/ADMIN_PASSWORD，未创建管理员账号。")
+    elif status == "exists":
+        print("库中已有管理员账号，跳过创建。")
+    else:
+        print(f"管理员账号已创建：{status.split(':', 1)[1]}")
     return 0
 
 

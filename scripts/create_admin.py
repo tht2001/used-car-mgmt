@@ -25,6 +25,30 @@ import db
 from werkzeug.security import generate_password_hash
 
 
+def ensure_admin_from_env() -> str:
+    """启动初始化用：按环境变量创建首个管理员（幂等）。
+
+    返回状态：'created:<username>'（已创建）、'exists'（库中已有管理员，
+    跳过）、'skipped'（未提供 ADMIN_USERNAME/ADMIN_PASSWORD，跳过）。
+    绝不覆盖已有账号、绝不灌演示数据。
+    """
+    username = os.environ.get("ADMIN_USERNAME", "").strip()
+    password = os.environ.get("ADMIN_PASSWORD", "")
+    if not username or not password:
+        return "skipped"
+    db.init_db()
+    existing = db.query(
+        "SELECT id, username FROM users WHERE role='admin' ORDER BY id"
+    )
+    if existing:
+        return "exists"
+    db.execute(
+        "INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, 'admin')",
+        (username, generate_password_hash(password), "系统管理员"),
+    )
+    return f"created:{username}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="创建首个管理员账号")
     parser.add_argument("--username", default=os.environ.get("ADMIN_USERNAME", ""),
