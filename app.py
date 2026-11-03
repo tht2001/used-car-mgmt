@@ -326,6 +326,12 @@ def check_csrf():
 @app.before_request
 def load_user():
     g.user = current_user()
+    if "user_id" in session and g.user is None:
+        # 孤儿会话：浏览器还留着旧库的登录态，新库里已无此账号
+        # （演示库清空/重建后常见）。不清掉的话各页面取 g.user 字段直接 500，
+        # 清掉后 login_required 会把人带回登录页重新登录。
+        session.clear()
+        g.user = None
     if g.user:
         g.menus = [
             {"key": k, "name": n, "url": u}

@@ -208,5 +208,29 @@ class TestPricingRobustness(unittest.TestCase):
         self.assertEqual(pricing.total_deal_price(sale), 150)
 
 
+class TestOrphanedSession(RobustBase):
+    """孤儿会话（旧库登录态 + 新库无此账号）必须回到登录页，绝不 500。
+
+    2026-11-03 线上 500 第二根因：演示库清空后，浏览器旧 session 的
+    user_id 在新库不存在，工作台取 g.user['role'] 直接抛错。
+    """
+
+    def test_orphaned_session_redirects_to_login(self):
+        make_user("fresh", role="admin")
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = 999
+            sess["csrf_token"] = "x" * 64
+        for path in ["/", "/vehicles", "/ledger", "/finance", "/sales"]:
+            resp = self.client.get(path)
+            self.assertNotEqual(resp.status_code, 500, path)
+            self.assertEqual(resp.status_code, 302, path)
+            self.assertIn("/login", resp.headers["Location"])
+        # 清掉孤儿会话后，用新账号能正常登录进工作台
+        resp = self.login("fresh")
+        self.assertEqual(resp.status_code, 302)
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
