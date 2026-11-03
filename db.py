@@ -270,6 +270,17 @@ DEFAULT_SETTINGS = [
      "4. 整备项目全部完成并质检通过。"),
 ]
 
+# 客户组织架构（客户管理表单所载部门结构）。部门是系统运转必需的
+# 基础数据（新建用户时从下拉选择），不是演示数据：空白库也必须有，
+# 否则设置页“部门”下拉为空且系统内无任何新增部门入口。
+# 按名称幂等补齐（name 列 UNIQUE），绝不覆盖、删除已有部门。
+DEFAULT_DEPARTMENTS = (
+    "总店",
+    "销售一部", "销售二部", "销售三部",
+    "收购一部", "收购二部", "收购三部",
+    "后勤", "摄影",
+)
+
 
 def get_conn() -> sqlite3.Connection:
     """返回新的 sqlite3 连接，row_factory=sqlite3.Row。"""
@@ -279,7 +290,7 @@ def get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """建全部表（不存在才建），写入默认 settings（已存在则跳过），补齐车辆扩展列。"""
+    """建全部表（不存在才建），写入默认 settings 与部门（已存在则跳过），补齐车辆扩展列。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = get_conn()
     try:
@@ -291,6 +302,10 @@ def init_db() -> None:
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             DEFAULT_SETTINGS,
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO departments (name) VALUES (?)",
+            [(name,) for name in DEFAULT_DEPARTMENTS],
         )
         conn.commit()
     finally:

@@ -146,7 +146,10 @@ def load_demo_data() -> bool:
         return False
 
     for dept_id, name in DEPARTMENTS:
-        db.execute("INSERT INTO departments (id, name) VALUES (?, ?)", (dept_id, name))
+        # init_db 已按客户组织架构预置部门（占 id 1-9），演示部门按名/主键
+        # 冲突即跳过，不覆盖已有部门。
+        db.execute("INSERT OR IGNORE INTO departments (id, name) VALUES (?, ?)",
+                   (dept_id, name))
 
     pw_hash = generate_password_hash(DEFAULT_PASSWORD)
     for username, name, role, dept_id, phone in USERS:
