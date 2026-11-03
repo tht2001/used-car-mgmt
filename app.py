@@ -145,6 +145,45 @@ def _form_wan(name):
     return value * 10000 if value is not None else None
 
 
+def _num(value, default=0.0):
+    """数字清洗：None、空串、文本/非法值一律转为 default，永不抛错。
+
+    读库展示层统一用它：库里只要有一条脏数据（文本价格、空金额），
+    未经清洗的算术/格式化会打崩整页（2026-11-03 线上 500 根因）。
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _num_or_none(value):
+    """可选金额清洗：能转数字则转 float，否则 None（模板显示 '-'）。"""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value):
+    """可选整数字段清洗：非法值返回 None，不抛错。"""
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _setting_float(key, default):
+    """系统参数取浮点：参数值被改成非法文本时回退默认值，不打崩页面。"""
+    return _num(get_setting(key, str(default)), default)
+
+
 def _save_vehicle_files(vid):
     """保存收车单上传的附件（车辆照片/证件资料/其他照片/收购车况视频）。
 
@@ -202,11 +241,32 @@ VEHICLE_FROM = ("FROM vehicles v LEFT JOIN users u1 ON u1.id=v.buyer_id "
                 "LEFT JOIN users u2 ON u2.id=v.sales_id")
 
 
+# 车辆金额/计数字段：读库时统一清洗，脏数据只显示为 0/空，永不打崩页面。
+_VEHICLE_MONEY_FIELDS = (
+    "buy_price", "new_car_price", "purchase_tax", "addon_cost",
+    "online_price", "installment_price", "showroom_price", "floor_price",
+    "manager_price", "wholesale_price", "alliance_price", "weidian_deposit",
+    "paid_amount", "rework_plan_cost", "insurance_commercial_amount",
+    "pre_cost", "post_cost", "unphased_cost", "cost_total",
+    "rework_cost", "other_cost",
+)
+_VEHICLE_INT_FIELDS = (
+    "transfer_count", "key_count", "stock_age_warn_days",
+    "booking_warn_days", "weidian_warn_days", "listing_warn_days",
+)
+
+
 def vehicle_rows(where="", args=(), order="ORDER BY v.id DESC"):
     rows = db.query(f"SELECT {VEHICLE_COLS} {VEHICLE_FROM} {where} {order}", args)
     for r in rows:
+        for k in _VEHICLE_MONEY_FIELDS:
+            if k in r:
+                r[k] = _num(r[k])
+        for k in _VEHICLE_INT_FIELDS:
+            if k in r:
+                r[k] = _int_or_none(r[k])
         # 总成本 = 收购价 + 全部费用台账（含新类目；旧口径仅含整备/其他两类）
-        r["total_cost"] = (r["buy_price"] or 0) + (r["cost_total"] or 0)
+        r["total_cost"] = r["buy_price"] + r["cost_total"]
         attach_pricing(r)
     return rows
 
@@ -368,7 +428,7 @@ def dashboard():
                 (v["id"],),
             )
             if so:
-                income += so["price"] or 0
+                income += _num(so["price"])
             cost += v["total_cost"]
         buy_total = db.query_one("SELECT COALESCE(SUM(buy_price),0) s FROM vehicles")["s"]
         profit_rows = [
@@ -384,6 +444,8 @@ def dashboard():
                WHERE s.sales_id=? ORDER BY s.id DESC LIMIT 10""",
             (u["id"],),
         )
+        for o in my_orders:
+            o["price"] = _num(o["price"])
 
     my_reworks = None
     if u["role"] == "rework":
@@ -402,6 +464,8 @@ def dashboard():
            FROM vehicles v LEFT JOIN users u1 ON u1.id=v.buyer_id
            ORDER BY v.id DESC LIMIT 8"""
     )
+    for r in recent_vehicles:
+        r["buy_price"] = _num(r["buy_price"])
     return render_template(
         "dashboard.html", active="dashboard", stats=stats, status_stats=status_stats,
         capital=capital, bought30=bought30, sold30=sold30, profit_rows=profit_rows,
@@ -479,7 +543,9 @@ def vehicle_detail(vid):
         o["items"] = db.query(
             "SELECT * FROM rework_items WHERE order_id=? ORDER BY id", (o["id"],)
         )
-        o["items_total"] = sum(i["cost"] or 0 for i in o["items"])
+        for i in o["items"]:
+            i["cost"] = _num(i["cost"])
+        o["items_total"] = sum(i["cost"] for i in o["items"])
     if restricted:
         # 受限视图：后端不再查询/传递财务与隐私数据，模板也不渲染这些区块
         ledger, sales_orders, logs, timeline = [], [], [], []
@@ -488,10 +554,11 @@ def vehicle_detail(vid):
         v["turnover_days"] = None
     else:
         so = latest_sale(vid)
-        v["sold_price"] = so["price"] if so else None
+        v["sold_price"] = _num_or_none(so["price"]) if so else None
         v["total_deal"] = pricing.total_deal_price(so)
         v["turnover_days"] = pricing.turnover_days(
-            v["stock_in_date"], so["created_at"][:10] if so else None
+            v["stock_in_date"],
+            (so["created_at"] or "")[:10] or None if so else None,
         )
         ledger = db.query(
             """SELECT l.*, u.name AS created_by_name FROM cost_ledger l
@@ -499,12 +566,18 @@ def vehicle_detail(vid):
                WHERE l.vehicle_id=? ORDER BY l.id""",
             (vid,),
         )
+        for l in ledger:
+            l["amount"] = _num(l["amount"])
         sales_orders = db.query(
             """SELECT s.*, u.name AS sales_name FROM sales_orders s
                LEFT JOIN users u ON u.id=s.sales_id
                WHERE s.vehicle_id=? ORDER BY s.id DESC""",
             (vid,),
         )
+        for s in sales_orders:
+            for k in ("price", "discount", "loan_rebate", "gps_rebate",
+                      "insurance_rebate", "warranty_profit", "other_income"):
+                s[k] = _num(s[k])
         logs = db.query(
             """SELECT l.*, u.name AS name FROM operation_logs l
                LEFT JOIN users u ON u.id=l.user_id
@@ -522,7 +595,7 @@ def vehicle_detail(vid):
                 "text": f"{l['action']}：{l['detail']}" if l["detail"] else l["action"],
             })
         timeline.sort(key=lambda x: x["time"])
-    threshold = float(get_setting("buy_high_price_threshold", "150000") or 150000)
+    threshold = _setting_float("buy_high_price_threshold", 150000)
     return render_template(
         "vehicle_detail.html", active="vehicles", vehicle=v, inspections=inspections,
         rework_orders=orders, ledger=ledger, sales_orders=sales_orders,
@@ -548,7 +621,7 @@ def vehicle_add_cost(vid):
         abort(404)
     phase = request.form.get("phase", "").strip()
     category = request.form.get("category", "").strip()
-    amount = float(request.form.get("amount", "") or 0)
+    amount = _form_float("amount") or 0
     note = request.form.get("note", "").strip()
     allowed = (
         pricing.PRE_COST_CATEGORIES if phase == "入库前"
@@ -594,10 +667,10 @@ def ledger():
     rows = vehicle_rows(clause, args)
     for r in rows:
         sale = latest_sale(r["id"])
-        r["sale_price"] = sale["price"] if sale else None
+        r["sale_price"] = _num_or_none(sale["price"]) if sale else None
         r["total_deal"] = pricing.total_deal_price(sale)
         r["sale_channel"] = sale["sale_channel"] if sale else None
-        r["sold_on"] = sale["created_at"][:10] if sale else None
+        r["sold_on"] = (sale["created_at"] or "")[:10] or None if sale else None
         r["turnover_days"] = pricing.turnover_days(r["stock_in_date"], r["sold_on"])
         r["vin6"] = pricing.vin_last6(r["vin"])
     brands = [r["brand"] for r in db.query("SELECT DISTINCT brand FROM vehicles ORDER BY brand")]
@@ -689,7 +762,7 @@ def stock_reject(vid):
 @login_required
 @role_required("admin", "boss", "buyer")
 def acquisition():
-    threshold = float(get_setting("buy_high_price_threshold", "150000") or 150000)
+    threshold = _setting_float("buy_high_price_threshold", 150000)
     if request.method == "POST":
         # 大风车 APP「新建车辆」7 大类栏目（2026-11-01 客户要求）。
         # 金额口径：库内统一为“元”；表单中标“万元”的字段按万元录入、此处换算。
@@ -827,6 +900,8 @@ def acquisition():
            FROM vehicles v LEFT JOIN users u ON u.id=v.buyer_id
            ORDER BY v.id DESC LIMIT 50"""
     )
+    for r in recent:
+        r["buy_price"] = _num(r["buy_price"])
     staff = db.query("SELECT id, name FROM users WHERE active=1 ORDER BY id")
     return render_template(
         "acquisition.html", active="acquisition", vehicles=recent, threshold=threshold,
@@ -855,7 +930,9 @@ def rework():
         o["items"] = db.query(
             "SELECT * FROM rework_items WHERE order_id=? ORDER BY id", (o["id"],)
         )
-        o["items_total"] = sum(i["cost"] or 0 for i in o["items"])
+        for i in o["items"]:
+            i["cost"] = _num(i["cost"])
+        o["items_total"] = sum(i["cost"] for i in o["items"])
     return render_template(
         "rework.html", active="rework", orders=orders,
         statuses=["待处理", "进行中", "已完成"], f_status=f_status,
@@ -891,7 +968,7 @@ def rework_add_item(oid):
         flash("工单已完成，不能再登记项目", "error")
         return redirect("/rework")
     item = request.form.get("item", "").strip()
-    cost = float(request.form.get("cost", "") or 0)
+    cost = _form_float("cost") or 0
     if not item or cost <= 0:
         flash("项目名称和费用为必填项", "error")
         return redirect("/rework")
@@ -946,12 +1023,12 @@ def sales():
             flash("该车辆当前不在售，不能创建销售订单", "error")
             return redirect("/sales")
         customer = request.form.get("customer", "").strip()
-        price = float(request.form.get("price", "") or 0)
+        price = _form_float("price") or 0
         if not customer or price <= 0:
             flash("客户姓名和成交价为必填项", "error")
             return redirect("/sales")
         rebates = {
-            k: float(request.form.get(k, "") or 0)
+            k: _form_float(k) or 0
             for k in ("loan_rebate", "gps_rebate", "insurance_rebate",
                       "warranty_profit", "other_income")
         }
@@ -962,7 +1039,7 @@ def sales():
                                         sale_channel)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (vid, g.user["id"], customer, request.form.get("phone", "").strip(),
-             price, float(request.form.get("discount", "") or 0),
+             price, _form_float("discount") or 0,
              request.form.get("finance_plan", "").strip(),
              request.form.get("contract_no", "").strip(),
              rebates["loan_rebate"], rebates["gps_rebate"],
@@ -984,10 +1061,16 @@ def sales():
             {where} ORDER BY s.id DESC""",
         args,
     )
+    for o in orders:
+        for k in ("price", "discount", "loan_rebate", "gps_rebate",
+                  "insurance_rebate", "warranty_profit", "other_income"):
+            o[k] = _num(o[k])
     sellable = db.query(
         "SELECT id, brand, model, plate, buy_price FROM vehicles "
         "WHERE status='在售' ORDER BY id DESC"
     )
+    for v in sellable:
+        v["buy_price"] = _num(v["buy_price"])
     return render_template(
         "sales.html", active="sales", orders=orders, sellable=sellable,
     )
@@ -1037,7 +1120,7 @@ def finance():
             "SELECT price FROM sales_orders WHERE vehicle_id=? ORDER BY id DESC",
             (v["id"],),
         )
-        v["sale_price"] = so["price"] if so else None
+        v["sale_price"] = _num_or_none(so["price"]) if so else None
         v["profit"] = (v["sale_price"] - v["total_cost"]) if v["sale_price"] else None
     totals = {
         "buy": sum(v["buy_price"] or 0 for v in rows),
@@ -1047,7 +1130,7 @@ def finance():
         "sale": sum(v["sale_price"] or 0 for v in rows),
         "profit": sum(v["profit"] or 0 for v in rows),
     }
-    rate = float(get_setting("sales_commission_rate", "0.05") or 0.05)
+    rate = _setting_float("sales_commission_rate", 0.05)
     comm = {}
     for v in rows:
         if v["sale_price"]:
@@ -1081,7 +1164,7 @@ def approvals():
     if request.method == "POST":
         atype = request.form.get("type", "")
         title = request.form.get("title", "").strip()
-        amount = float(request.form.get("amount", "") or 0)
+        amount = _form_float("amount") or 0
         if atype not in APPROVAL_TYPES or not title:
             flash("审批类型和标题为必填项", "error")
             return redirect("/approvals")
@@ -1106,6 +1189,8 @@ def approvals():
             {clause} ORDER BY a.id DESC""",
         args,
     )
+    for r in rows:
+        r["amount"] = _num(r["amount"])
     can_approve = g.user["role"] in ("admin", "boss", "finance")
     return render_template(
         "approvals.html", active="approvals", approvals=rows,
@@ -1193,9 +1278,12 @@ def report_sales_csv():
            FROM sales_orders s JOIN vehicles v ON v.id=s.vehicle_id
            LEFT JOIN users u ON u.id=s.sales_id ORDER BY s.id"""
     )
+    for r in rows:
+        r["price"] = _num(r["price"])
+        r["discount"] = _num(r["discount"])
     data = [[
         r["id"], f"{r['brand']}{r['model']}", r["plate"], r["customer"], r["phone"],
-        f"{r['price'] or 0:.0f}", f"{r['discount'] or 0:.0f}", r["finance_plan"],
+        f"{r['price']:.0f}", f"{r['discount']:.0f}", r["finance_plan"],
         r["contract_no"], r["transfer_status"], r["delivery_status"],
         r["sales_name"] or "", r["created_at"],
     ] for r in rows]
@@ -1218,7 +1306,7 @@ def report_finance_csv():
             "SELECT price FROM sales_orders WHERE vehicle_id=? ORDER BY id DESC",
             (v["id"],),
         )
-        sale = so["price"] if so else 0
+        sale = _num(so["price"]) if so else 0
         profit = (sale - v["total_cost"]) if so else 0
         data.append([
             v["id"], f"{v['brand']}{v['model']}", v["plate"],

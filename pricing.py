@@ -89,6 +89,19 @@ COST_PHASES = ("入库前", "入库后")
 ALL_COST_CATEGORIES = sorted(set(PRE_COST_CATEGORIES) | set(POST_COST_CATEGORIES))
 
 
+def _num(value, default=0.0) -> float:
+    """数字清洗：None、空串、文本一律转为 default，永不抛错。
+
+    定价链跑在每辆车上，库里一条脏数据不能打崩整页（2026-11-03 线上 500 根因）。
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _tier(tiers, x: float):
     """IFS 首匹配：返回首个 x <= 上限 的取值。"""
     for limit, value in tiers:
@@ -124,9 +137,10 @@ def compute_pricing(buy_price: float, pre_cost: float, post_cost: float,
     buy_price 打款价 AA；pre_cost 入库前费用 AB；post_cost 入库后费用 AC。
     返回含全部中间值与四种标价的字典，金额均为元（利润率/降价为小数）。
     """
-    buy_price = buy_price or 0
-    pre_cost = pre_cost or 0
-    post_cost = post_cost or 0
+    buy_price = _num(buy_price)
+    pre_cost = _num(pre_cost)
+    post_cost = _num(post_cost)
+    stock_days = _num(stock_days)
     cost = buy_price + pre_cost + post_cost
     rate = profit_rate(cost)
     discount = cycle_discount(stock_days)
@@ -204,7 +218,7 @@ def total_deal_price(sale: dict | None) -> float | None:
     if not sale:
         return None
     return sum(
-        (sale.get(k) or 0)
+        _num(sale.get(k))
         for k in ("price", "loan_rebate", "gps_rebate",
                   "insurance_rebate", "warranty_profit", "other_income")
     )
