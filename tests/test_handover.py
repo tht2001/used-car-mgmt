@@ -182,3 +182,53 @@ class TestSeedCli:
         assert res.returncode == 0, res.stderr
         assert _count(path, "users") == 9
         assert _count(path, "vehicles") == 12
+
+
+EXPECTED_DEPARTMENTS = [
+    "总店",
+    "销售一部", "销售二部", "销售三部",
+    "收购一部", "收购二部", "收购三部",
+    "后勤", "摄影",
+]
+
+
+class TestDefaultDepartments(unittest.TestCase):
+    """空白库也必须预置客户组织架构的 9 个部门（设置页新增用户下拉的唯一来源）。
+
+    部门是基础数据、不是演示数据；按名幂等补齐，重复建库不翻倍。
+    """
+
+    def setUp(self):
+        _fresh_db()
+
+    def test_blank_db_has_nine_departments(self):
+        con = sqlite3.connect(db.DB_PATH)
+        try:
+            names = [r[0] for r in con.execute(
+                "SELECT name FROM departments ORDER BY id")]
+        finally:
+            con.close()
+        self.assertEqual(names, EXPECTED_DEPARTMENTS)
+
+    def test_init_db_twice_does_not_duplicate(self):
+        db.init_db()
+        self.assertEqual(_count(db.DB_PATH, "departments"), 9)
+
+    def test_settings_page_lists_departments(self):
+        import app as app_module
+        from werkzeug.security import generate_password_hash
+        app_module.db.DB_PATH = db.DB_PATH
+        # 先建管理员再设 session（否则孤儿会话清理会把未建好的登录态清掉）
+        db.execute(
+            "INSERT INTO users(username,password_hash,name,role,active) "
+            "VALUES('admin',?,'管理员','admin',1)",
+            (generate_password_hash("123456"),),
+        )
+        client = app_module.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = 1
+        resp = client.get("/settings")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        for name in EXPECTED_DEPARTMENTS:
+            self.assertIn(name, html)
